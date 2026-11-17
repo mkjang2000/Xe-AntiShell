@@ -38,8 +38,10 @@ or reconstructed as exact argv.
   New extended results are explicitly detection-only even under an existing
   enforce policy. Response code must honor this marker independently.
 - Keep risk contributions and evidence confidence separate. Never copy command
-  strings, URLs, script content or secrets into reasons. Inline-code checks use
-  exact argv only; Tetragon cannot supply that signal in this adapter.
+  strings, URLs, script content or secrets into reasons. Inline checks use exact
+  argv or a separately identified, reviewed Tetragon policy signal; flattened
+  Tetragon arguments remain unavailable as exact argv. The later execution
+  evidence design is documented in `execution-evidence-detection.md`.
 - Show Korean rule titles, observed reasons, additive score and detection-only
   state; extend Korean history search consistently.
 

@@ -253,7 +253,7 @@ func TestIntegrityPrerequisitesNeverClaimActiveVerification(t *testing.T) {
 	defer shutdownService(t, s)
 	prepareRuntimeReport(s)
 	report, _ := s.Capabilities(context.Background())
-	for _, name := range []string{capability.IMACapability, capability.TPMCapability, capability.FileCapability} {
+	for _, name := range []string{capability.IMACapability, capability.TPMCapability} {
 		value := report.Capabilities[name]
 		if value.Implementation != "planned" || value.RuntimeState != "inactive" {
 			t.Fatalf("%s claims an implemented verifier: %#v", name, value)

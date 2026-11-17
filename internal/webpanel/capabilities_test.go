@@ -14,6 +14,19 @@ func TestOperatorCapabilityRowsHideTechnicalFieldsAndPreserveExpansion(t *testin
 	runCapabilityBehavior(t, operatorCapabilityRowsBehavior)
 }
 
+func TestScopedObservationCapabilitiesRequireTheirOwnRuntimeEvidence(t *testing.T) {
+	runCapabilityBehavior(t, `
+for(const [name,scope] of [["observation.interpreter_exec",/기존 프로세스 내부 실행과 실행 성공·코드 내용은 확인하지/],["observation.file",/파일 내용·모든 쓰기·디스크 반영을 보장하지/],["observation.network",/연결 완료·모든 통신·전송 내용은 확인하지/]]){
+ const active=present(name,fixture());assert.equal(active.active,true);assert.match(active.description,scope);
+ const waiting=present(name,fixture({runtime_state:"unverified"}));assert.equal(waiting.active,false);assert.match(waiting.description,/수집 정책이나 설정만으로 동작을 확인할 수 없습니다/);
+ for(const runtime_state of ["available","inactive","error"]){assert.equal(present(name,fixture({runtime_state})).active,false)}
+ assert.equal(present(name,fixture({implementation:"planned"})).active,false);
+ assert.equal(present(name,fixture({state:"future"})).active,false);
+ assert.equal(present(name,fixture({implementation:undefined})).active,false);
+}
+`)
+}
+
 func runCapabilityBehavior(t *testing.T, behavior string) {
 	t.Helper()
 	node, err := exec.LookPath("node")

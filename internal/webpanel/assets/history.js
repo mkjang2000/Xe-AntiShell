@@ -231,10 +231,12 @@ function findingCard(finding) {
 
 function eventCard(event) {
   const process = event.process || {};
+  const observation = eventObservation(event);
   const context = [serviceLabel(process.origin_service), process.pid ? `PID ${process.pid}` : "실행 번호 미확인", process.euid === 0 ? "관리자 권한" : process.euid >= 0 ? `사용자 번호 ${process.euid}` : "실행 권한 미확인"].join(" · ");
-  const article = recordsLayout(event.event_time, process.exe || "실행 파일 미확인", "", context, [tag(operatorLabel("event", event.event_type), "inactive")]);
+  const article = recordsLayout(event.event_time, process.exe || "실행 파일 미확인", observation.summary, context, [tag(operatorLabel("event", event.event_type), "inactive")]);
   article.append(recordDetails([
     ["실행 활동", operatorLabel("event", event.event_type)], ["상위 실행 번호", process.ppid],
+    ...observation.fields,
     ["실제 사용자 번호", credentialLabel(process.uid)], ["실행 권한 사용자 번호", credentialLabel(process.euid)],
     ["정보 확인 수준", operatorLabel("completeness", event.completeness)], ["원본 정보 상태", event.completeness],
     ["이벤트 식별자", event.event_id], ["원본 이벤트 종류", event.event_type], ["수집 출처", event.source],

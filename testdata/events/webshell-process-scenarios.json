@@ -28,7 +28,7 @@
         "retained": true,
         "finding": {
           "rule_id": "web-descendant-download-tool",
-          "rule_version": "0.2.0",
+          "rule_version": "0.3.0",
           "risk_score": 60,
           "risk_factors": [
             {
@@ -71,7 +71,7 @@
         "retained": true,
         "finding": {
           "rule_id": "web-descendant-recon-tool",
-          "rule_version": "0.2.0",
+          "rule_version": "0.3.0",
           "risk_score": 45,
           "risk_factors": [
             {
@@ -114,7 +114,7 @@
         "retained": true,
         "finding": {
           "rule_id": "web-descendant-connection-tool",
-          "rule_version": "0.2.0",
+          "rule_version": "0.3.0",
           "risk_score": 70,
           "risk_factors": [
             {
@@ -157,7 +157,7 @@
         "retained": true,
         "finding": {
           "rule_id": "web-descendant-temporary-executable",
-          "rule_version": "0.2.0",
+          "rule_version": "0.3.0",
           "risk_score": 65,
           "risk_factors": [
             {
@@ -197,7 +197,7 @@
           "argv": [
             "python3",
             "-c",
-            "pass"
+            "SELFTEST_PRIVATE_INLINE_CODE"
           ]
         }
       },
@@ -205,7 +205,7 @@
         "retained": true,
         "finding": {
           "rule_id": "web-descendant-inline-interpreter",
-          "rule_version": "0.2.0",
+          "rule_version": "0.3.0",
           "risk_score": 70,
           "risk_factors": [
             {
@@ -219,7 +219,17 @@
           ],
           "detection_only": true,
           "response_decision": "detection_only"
-        }
+        },
+        "argv_redacted": true,
+        "execution": {
+          "runtime": "python",
+          "mode": "inline",
+          "evidence": "exact_argv",
+          "option": "-c"
+        },
+        "forbidden_values": [
+          "SELFTEST_PRIVATE_INLINE_CODE"
+        ]
       }
     },
     {
@@ -248,7 +258,7 @@
         "retained": true,
         "finding": {
           "rule_id": "web-descendant-shell",
-          "rule_version": "0.2.0",
+          "rule_version": "0.3.0",
           "risk_score": 85,
           "risk_factors": [
             {
@@ -295,7 +305,8 @@
       },
       "expected": {
         "retained": true,
-        "finding": null
+        "finding": null,
+        "argv_redacted": true
       }
     },
     {
@@ -326,7 +337,8 @@
       },
       "expected": {
         "retained": true,
-        "finding": null
+        "finding": null,
+        "argv_redacted": true
       }
     },
     {
@@ -487,7 +499,7 @@
           "argv": [
             "python3",
             "-c",
-            "pass"
+            "SELFTEST_PRIVATE_FLATTENED_CODE"
           ]
         },
         "missing_fields": [
@@ -496,7 +508,11 @@
       },
       "expected": {
         "retained": true,
-        "finding": null
+        "finding": null,
+        "argv_redacted": true,
+        "forbidden_values": [
+          "SELFTEST_PRIVATE_FLATTENED_CODE"
+        ]
       }
     },
     {
@@ -522,7 +538,7 @@
           "argv": [
             "python3",
             "-c",
-            "pass"
+            "SELFTEST_PRIVATE_PARTIAL_CODE"
           ]
         },
         "missing_fields": [
@@ -531,7 +547,11 @@
       },
       "expected": {
         "retained": true,
-        "finding": null
+        "finding": null,
+        "argv_redacted": true,
+        "forbidden_values": [
+          "SELFTEST_PRIVATE_PARTIAL_CODE"
+        ]
       }
     },
     {
@@ -557,7 +577,7 @@
           "argv": [
             "python3",
             "-c",
-            "pass"
+            "SELFTEST_PRIVATE_REDACTED_CODE"
           ]
         },
         "redacted_fields": [
@@ -566,7 +586,219 @@
       },
       "expected": {
         "retained": true,
-        "finding": null
+        "finding": null,
+        "argv_redacted": true,
+        "forbidden_values": [
+          "SELFTEST_PRIVATE_REDACTED_CODE"
+        ]
+      }
+    },
+    {
+      "name": "direct temporary script without shell",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-17",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31017,
+          "ppid": 0,
+          "exe": "/usr/bin/python3",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "python3",
+            "/tmp/selftest-worker.py"
+          ]
+        }
+      },
+      "expected": {
+        "retained": true,
+        "argv_redacted": true,
+        "execution": {
+          "runtime": "python",
+          "mode": "script",
+          "evidence": "exact_argv",
+          "script_location": "temporary"
+        },
+        "finding": {
+          "rule_id": "web-descendant-temporary-script",
+          "rule_version": "0.3.0",
+          "risk_score": 60,
+          "risk_factors": [
+            {
+              "id": "web_origin",
+              "score": 25
+            },
+            {
+              "id": "temporary_script",
+              "score": 35
+            }
+          ],
+          "detection_only": true,
+          "response_decision": "detection_only"
+        }
+      }
+    },
+    {
+      "name": "node print option without shell",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-18",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31018,
+          "ppid": 0,
+          "exe": "/usr/bin/node",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "node",
+            "-p",
+            "SELFTEST_PRIVATE_NODE_CODE"
+          ]
+        }
+      },
+      "expected": {
+        "retained": true,
+        "argv_redacted": true,
+        "execution": {
+          "runtime": "node",
+          "mode": "inline",
+          "evidence": "exact_argv",
+          "option": "-p"
+        },
+        "finding": {
+          "rule_id": "web-descendant-inline-interpreter",
+          "rule_version": "0.3.0",
+          "risk_score": 70,
+          "risk_factors": [
+            {
+              "id": "web_origin",
+              "score": 25
+            },
+            {
+              "id": "inline_interpreter",
+              "score": 45
+            }
+          ],
+          "detection_only": true,
+          "response_decision": "detection_only"
+        },
+        "forbidden_values": [
+          "SELFTEST_PRIVATE_NODE_CODE"
+        ]
+      }
+    },
+    {
+      "name": "perl capital E option without shell",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-19",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31019,
+          "ppid": 0,
+          "exe": "/usr/bin/perl",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "perl",
+            "-E",
+            "SELFTEST_PRIVATE_PERL_CODE"
+          ]
+        }
+      },
+      "expected": {
+        "retained": true,
+        "argv_redacted": true,
+        "execution": {
+          "runtime": "perl",
+          "mode": "inline",
+          "evidence": "exact_argv",
+          "option": "-E"
+        },
+        "finding": {
+          "rule_id": "web-descendant-inline-interpreter",
+          "rule_version": "0.3.0",
+          "risk_score": 70,
+          "risk_factors": [
+            {
+              "id": "web_origin",
+              "score": 25
+            },
+            {
+              "id": "inline_interpreter",
+              "score": 45
+            }
+          ],
+          "detection_only": true,
+          "response_decision": "detection_only"
+        },
+        "forbidden_values": [
+          "SELFTEST_PRIVATE_PERL_CODE"
+        ]
+      }
+    },
+    {
+      "name": "normal worker arguments resembling inline options",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-20",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31020,
+          "ppid": 0,
+          "exe": "/usr/bin/node",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "node",
+            "/srv/application/worker.js",
+            "--print",
+            "SELFTEST_PRIVATE_WORKER_ARGUMENT"
+          ]
+        }
+      },
+      "expected": {
+        "retained": true,
+        "argv_redacted": true,
+        "execution": null,
+        "finding": null,
+        "forbidden_values": [
+          "SELFTEST_PRIVATE_WORKER_ARGUMENT"
+        ]
       }
     }
   ]

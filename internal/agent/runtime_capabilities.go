@@ -5,6 +5,7 @@ import (
 
 	"xe-antishell/internal/capability"
 	"xe-antishell/internal/collector"
+	"xe-antishell/internal/detection"
 	"xe-antishell/internal/model"
 	"xe-antishell/internal/response"
 )
@@ -12,12 +13,18 @@ import (
 // Evidence is scoped to this daemon lifetime and source. Refreshing passive
 // prerequisites cannot fabricate receipt of a live source event.
 type sourceRuntimeEvidence struct {
-	ExecAt    time.Time
-	LineageAt time.Time
+	ExecAt        time.Time
+	LineageAt     time.Time
+	FileAt        time.Time
+	NetworkAt     time.Time
+	InterpreterAt time.Time
 }
 
 func (s *Service) recordRuntimeEvent(event model.Event) {
-	if event.Type != "process.exec" || event.Process.PID < 1 || event.Process.Exe == "" || (event.Source != "audit" && event.Source != "tetragon") {
+	if (event.Type != "process.exec" && !isOperationEvent(event.Type)) || event.Process.PID < 1 || event.Process.Exe == "" || (event.Source != "audit" && event.Source != "tetragon") {
+		return
+	}
+	if isOperationEvent(event.Type) && validateOperationEvent(event) != nil {
 		return
 	}
 	s.statusMu.Lock()
@@ -26,8 +33,23 @@ func (s *Service) recordRuntimeEvent(event model.Event) {
 		s.runtimeEvidence = make(map[string]sourceRuntimeEvidence)
 	}
 	evidence := s.runtimeEvidence[event.Source]
-	evidence.ExecAt = time.Now().UTC()
-	if event.Process.ParentKey != "" && (event.Process.LineageConfidence == model.LineageVerified || (event.Source == "audit" && event.Process.LineageConfidence == model.LineageInferred)) {
+	now := time.Now().UTC()
+	switch event.Type {
+	case "file.write":
+		evidence.FileAt = now
+	case "network.connect":
+		evidence.NetworkAt = now
+	case "process.exec_observation":
+		if detection.ValidExecutionEvidence(event) {
+			evidence.InterpreterAt = now
+		}
+	case "process.exec":
+		evidence.ExecAt = now
+		if detection.ValidExecutionEvidence(event) {
+			evidence.InterpreterAt = now
+		}
+	}
+	if event.Type == "process.exec" && event.Process.ParentKey != "" && (event.Process.LineageConfidence == model.LineageVerified || (event.Source == "audit" && event.Process.LineageConfidence == model.LineageInferred)) {
 		evidence.LineageAt = evidence.ExecAt
 	}
 	s.runtimeEvidence[event.Source] = evidence
@@ -116,7 +138,7 @@ func applyRuntimeCapabilities(report *model.CapabilityReport, status model.Agent
 			value.RuntimeReason = "host prerequisite probe failed"
 		}
 		switch name {
-		case capability.FileCapability, capability.NetworkCapability, capability.CredentialCapability:
+		case capability.CredentialCapability:
 			value.Implementation = "planned"
 			value.RuntimeState = "inactive"
 			value.RuntimeReason = "agent observation and detection are not implemented"
@@ -124,6 +146,13 @@ func applyRuntimeCapabilities(report *model.CapabilityReport, status model.Agent
 			value.Implementation = "planned"
 			value.RuntimeState = "inactive"
 			value.RuntimeReason = "host prerequisite probe only; agent integrity verification is not implemented"
+		case capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability:
+			value.RuntimeState = "unverified"
+			value.RuntimeReason = "optional observation policy has no verified source event in this daemon lifetime"
+			if status.Collector != "tetragon-json" && (name != capability.InterpreterCapability || status.Collector != "audit-dispatcher") {
+				value.RuntimeState = "inactive"
+				value.RuntimeReason = "a compatible source is not selected for this observation"
+			}
 		case capability.AuditCapability, capability.TetragonCapability:
 			value.RuntimeState = "inactive"
 			value.RuntimeReason = "not the selected process collector"
@@ -165,8 +194,25 @@ func applyRuntimeCapabilities(report *model.CapabilityReport, status model.Agent
 		}
 		setRuntime(report, capability.ProcessLineageCapability, "active", reason, evidence.LineageAt)
 	}
+	if source == "tetragon" {
+		for _, item := range []struct {
+			name   string
+			at     time.Time
+			reason string
+		}{
+			{capability.FileCapability, evidence.FileAt, "vfs_write events received; positive returns confirm bytes written; writev, mmap and io_uring are outside this hook"},
+			{capability.NetworkCapability, evidence.NetworkAt, "TCP connect attempts received; a zero return is initiation, not an established connection; UDP and socket contents are not observed"},
+			{capability.InterpreterCapability, evidence.InterpreterAt, "fixed interpreter invocation argument policy matches received; code execution completion is not established"},
+		} {
+			if !item.at.IsZero() {
+				setRuntime(report, item.name, "active", item.reason, item.at)
+			}
+		}
+	} else if !evidence.InterpreterAt.IsZero() {
+		setRuntime(report, capability.InterpreterCapability, "active", "exact audit argv yielded interpreter invocation metadata; code contents are omitted", evidence.InterpreterAt)
+	}
 	if status.Health == model.HealthError || (status.LastError != "" && status.Mode != model.AgentModeActive) || (stream != nil && stream.LastError != "") {
-		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability} {
+		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability, capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability} {
 			setRuntime(report, name, "error", "selected collector or agent reported a runtime failure; inspect system status", time.Time{})
 		}
 		if source == "tetragon" {
@@ -175,7 +221,7 @@ func applyRuntimeCapabilities(report *model.CapabilityReport, status model.Agent
 		return
 	}
 	if stream != nil && !stream.Running {
-		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability} {
+		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability, capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability} {
 			setRuntime(report, name, "unverified", "selected collector stream is not running", time.Time{})
 		}
 		if source == "tetragon" {

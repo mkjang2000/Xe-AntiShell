@@ -115,6 +115,18 @@ func sameSourceEvent(left, right model.Event) bool {
 	for index := range right.Ancestors {
 		right.Ancestors[index].FirstSeen, right.Ancestors[index].LastSeen = time.Time{}, time.Time{}
 	}
+	if isContextObservation(left.Type) && left.Type == right.Type {
+		// IO/argument-match events carry context, never source lifecycle changes.
+		// A later parent or exit must not turn a retry into different evidence.
+		clearDerivedContext(&left.Process)
+		clearDerivedContext(&right.Process)
+		for index := range left.Ancestors {
+			clearDerivedContext(&left.Ancestors[index])
+		}
+		for index := range right.Ancestors {
+			clearDerivedContext(&right.Ancestors[index])
+		}
+	}
 	leftJSON, leftErr := json.Marshal(left)
 	rightJSON, rightErr := json.Marshal(right)
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
@@ -295,4 +307,14 @@ func boundedLimit(limit int) (int, error) {
 		return 0, fmt.Errorf("storage: query limit must be between 1 and 100000")
 	}
 	return limit, nil
+}
+
+func isContextObservation(kind string) bool {
+	return kind == "process.exec_observation" || kind == "file.write" || kind == "network.connect"
+}
+
+func clearDerivedContext(process *model.Process) {
+	process.OriginService = ""
+	process.LineageConfidence = ""
+	process.Complete = false
 }

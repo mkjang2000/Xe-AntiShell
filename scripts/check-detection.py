@@ -41,7 +41,7 @@ def load_scenarios():
     require(FIXTURE.is_file() and CONFIG.is_file(), "missing shareable inputs")
     data = json.loads(FIXTURE.read_text(encoding="utf-8"))
     cases = data["scenarios"]
-    require(data["format_version"] == 1 and len(cases) == 16, "invalid fixture format")
+    require(data["format_version"] == 1 and len(cases) == 20, "invalid fixture format")
     ids, pids = set(), set()
     for case in cases:
         event, expected = case["event"], case["expected"]
@@ -55,8 +55,8 @@ def load_scenarios():
         require(type(expected["retained"]) is bool, "invalid fixture retention expectation")
         ids.add(event["event_id"])
         pids.add(process["pid"])
-    require(sum(case["expected"]["finding"] is not None for case in cases) == 6,
-            "fixture must contain six observations and ten negative cases")
+    require(sum(case["expected"]["finding"] is not None for case in cases) == 9,
+            "fixture must contain nine observations and eleven negative cases")
     return cases
 
 
@@ -127,7 +127,7 @@ def verify(cases, events, findings):
             "retained event set differs from fixture")
     require(event_map[MARKER]["event_type"] == "security.selftest_end" and
             event_map[MARKER]["source"] == "replay", "invalid completion marker")
-    require(findings is not None and len(findings) == 6, "expected exactly six findings")
+    require(findings is not None and len(findings) == 9, "expected exactly nine findings")
     finding_map = {}
     for finding in findings:
         evidence = finding["evidence_event_ids"]
@@ -139,12 +139,21 @@ def verify(cases, events, findings):
         event = event_map.get(original["event_id"])
         if expected["retained"]:
             require(event["source"] == original["source"], prefix + "source changed")
-            for field in ("missing_fields", "redacted_fields"):
-                require(event.get(field, []) == original.get(field, []), prefix + "evidence quality changed")
-            for field in ("pid", "exe", "euid", "cwd", "origin_service", "argv"):
+            require(event.get("missing_fields", []) == original.get("missing_fields", []), prefix + "evidence quality changed")
+            redactions = list(original.get("redacted_fields", []))
+            if expected.get("argv_redacted") and "process.argv" not in redactions:
+                redactions.append("process.argv")
+            require(event.get("redacted_fields", []) == redactions, prefix + "privacy evidence mismatch")
+            for field in ("pid", "exe", "euid", "cwd", "origin_service"):
                 require(event["process"].get(field, []) == original["process"].get(field, []),
                         prefix + "process metadata changed")
+            argv = [] if expected.get("argv_redacted") else original["process"].get("argv", [])
+            require(event["process"].get("argv", []) == argv, prefix + "argv privacy mismatch")
+            require(event.get("execution") == expected.get("execution"), prefix + "invocation metadata mismatch")
         finding = finding_map.pop(original["event_id"], None)
+        retained = json.dumps({"event": event, "finding": finding})
+        for forbidden in expected.get("forbidden_values", []):
+            require(forbidden not in retained, prefix + "private argument survived normalization")
         if expected["finding"] is None:
             require(finding is None, prefix + "legitimate or uncertain execution produced a finding")
             continue
@@ -198,7 +207,7 @@ def run(bin_dir):
                 verify(cases, events, findings)
             finally:
                 stop_child(daemon)
-    print("detection check: 16 scenarios passed (6 observations, 10 legitimate/uncertain)")
+    print("detection check: 20 scenarios passed (9 observations, 11 legitimate/uncertain)")
 
 
 def main():

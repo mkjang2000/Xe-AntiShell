@@ -14,6 +14,48 @@ func TestExtendedFindingsExplainObservedFactorsAndDetectionOnlyResponse(t *testi
 	runBrowserBehavior(t, extendedFindingBehaviorTest)
 }
 
+func TestOperationRecordsExplainProofAndReturnValuesWithoutClaimingCompletion(t *testing.T) {
+	runBrowserBehavior(t, operationRecordsBehaviorTest)
+}
+
+const operationRecordsBehaviorTest = `
+const operation={event_id:"operation-1",event_time:"2026-11-17T06:00:00Z",process:{exe:"/usr/bin/python3",pid:42,euid:1000}};
+const observation=value=>{context.operation={...operation,...value};return vm.runInContext("eventObservation(operation)",context)};
+const field=(value,name)=>value.fields.find(entry=>entry[0]===name)?.[1];
+for(const evidence of ["exact_argv","tetragon_policy"]){
+ const value=observation({event_type:"process.exec_observation",execution:{runtime:"python",mode:"inline",evidence,option:"-c",code:"SECRET_SOURCE",arguments:["SECRET_ARG"]}});
+ assert.match(value.summary,/코드 내용과 실행 성공 여부는 확인하지 않습니다/);
+ assert.equal(field(value,"인터프리터"),"Python");assert.equal(field(value,"확인한 옵션"),"-c");
+ assert.match(field(value,"관측 근거"),evidence==="exact_argv"?/분리된 실행 인자/:/전용 수집 정책/);
+ assert.doesNotMatch(JSON.stringify(value),/SECRET_SOURCE|SECRET_ARG/);
+ const card=vm.runInContext("eventCard(operation)",context);
+ assert.match(flatten(card),/실행 옵션 관측/);assert.doesNotMatch(flatten(card),/SECRET_SOURCE|SECRET_ARG/);
+}
+for(const [location,label] of [["temporary","임시 경로"],["memory","메모리 파일 경로"],["fd","파일 디스크립터 경로"]]){
+ const value=observation({event_type:"process.exec",execution:{runtime:"php",mode:"script",evidence:"exact_argv",script_location:location}});
+ assert.equal(field(value,"스크립트 경로 종류"),label);assert.equal(field(value,"확인한 옵션"),"위치 인자 (옵션 없음)");
+ assert.match(value.summary,/실행 성공 여부는 확인하지 않습니다/);
+}
+for(const [outcome,result,label] of [["written",12,"쓰기 바이트 수 보고"],["no_data",0,"쓴 데이터 없음"],["failed",-13,"실패"],["unknown",null,"결과 미확인"]]){
+ const value=observation({event_type:"file.write",file:{path:"/tmp/<img>",outcome,return_value:result,function:"vfs_write",policy_name:"xeas-file-write-v1"}});
+ assert.equal(field(value,"쓰기 결과"),label);assert.equal(field(value,"원래 반환값"),result===null?"미수집":String(result));
+ assert.equal(field(value,"파일 경로"),"/tmp/<img>");assert.match(field(value,"반환값 의미"),/바이트 수.*커널 오류.*디스크 반영/);
+ assert.match(flatten(vm.runInContext("eventCard(operation)",context)),/파일 쓰기 관측/);
+}
+for(const [outcome,result] of [["initiated",0],["failed",-111],["unknown",undefined]]){
+ const value=observation({event_type:"network.connect",network:{operation:"connect",protocol:"tcp",family:"ipv6",destination_address:"::1",destination_port:443,outcome,return_value:result,function:"tcp_v6_connect"}});
+ assert.equal(field(value,"원래 반환값"),result===undefined?"미수집":String(result));assert.equal(field(value,"대상 주소"),"::1");assert.equal(field(value,"대상 포트"),443);assert.equal(field(value,"주소 종류"),"IPv6");
+ assert.match(value.summary,/연결 완료/);assert.doesNotMatch(value.summary,/연결 완료했습니다|통신 성공|ESTABLISHED/);
+ assert.match(flatten(vm.runInContext("eventCard(operation)",context)),/TCP 연결 요청 관측/);
+}
+const malformed=observation({event_type:"network.connect",network:{outcome:"constructor",protocol:"__proto__",destination_port:0,return_value:"0"}});
+assert.match(malformed.summary,/확인할 수 없습니다/);assert.equal(field(malformed,"원래 반환값"),"정확한 값 미확인");assert.equal(field(malformed,"대상 포트"),"미확인");
+assert.equal(observation({event_type:"process.exit",file:{path:"SHOULD_NOT_BE_PROMOTED"}}).fields.length,0);
+context.temporaryFinding={rule_id:"web-descendant-temporary-script"};
+assert.match(vm.runInContext("findingTitle(temporaryFinding)",context),/스크립트 실행 요청/);
+context.temporaryFactor={id:"temporary_script"};assert.match(vm.runInContext("findingRiskFactorText(temporaryFactor)",context),/실행 성공 여부는 확인되지 않았습니다/);
+`
+
 const extendedFindingBehaviorTest = `
 const titles = [
  ["web-descendant-download-tool","웹 서비스에서 다운로드 도구 실행"],
@@ -21,6 +63,7 @@ const titles = [
  ["web-descendant-connection-tool","웹 서비스에서 연결 도구 실행"],
  ["web-descendant-inline-interpreter","웹 서비스에서 직접 코드 실행 요청"],
  ["web-descendant-temporary-executable","웹 서비스에서 임시 경로의 실행 파일 실행"],
+ ["web-descendant-temporary-script","웹 서비스에서 임시 경로의 스크립트 실행 요청"],
 ];
 context.extended={
  finding_id:"extended-observation",state:"open",severity:"high",confidence:.75,risk_score:100,
@@ -55,6 +98,7 @@ for(const [id,explanation] of [
  ["connection_tool",/실제 연결 여부는 확인되지 않았습니다/],
  ["inline_interpreter",/코드 내용은 분석하지 않았습니다/],
  ["temporary_executable",/임시 또는 메모리 파일 경로/],
+ ["temporary_script",/실행 성공 여부는 확인되지 않았습니다/],
 ]){
  context.factor={id,score:20};
  assert.match(vm.runInContext("findingRiskFactorText(factor)",context),explanation);

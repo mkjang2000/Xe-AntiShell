@@ -11,7 +11,7 @@
 - Local Database: SQLite (pure-Go driver, WAL mode)
 - Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`
 - Central Project: https://github.com/mkjang2000/Xe-AntiShell-Central
-- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.1.1`
+- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.1.2`
 - Build Command: `make build`, `make static`, or `make rpm`
 - Run Command: `build/sentineld --config configs/sentineld.yaml`
 - Test Command: `make verify` (source, shell/UI, vet, race tests, static build)
@@ -27,13 +27,17 @@ Xe-AntiShell/
 │   └── sentinel-web/              # Unprivileged local web panel entry point
 ├── internal/
 │   ├── agent/                     # Pipeline, runtime evidence, Tetragon context/filtering
+│   │   ├── event_normalization.go # Queue-boundary privacy, exact-proof validation and event limits
+│   │   └── operation_events.go    # Typed operation validation and lifecycle-safe context observation
 │   ├── capability/                # Host/kernel feature discovery
 │   ├── collector/                 # Tetragon, audit, and replay adapters
-│   │   └── audit_argv.go          # Bounded count/index validation for exact exec arguments
+│   │   ├── audit_argv.go          # Bounded count/index validation for exact exec arguments
+│   │   └── tetragon_observations.go # Fixed-policy inline/file/TCP metadata adapters
 │   ├── config/                    # Strict configuration loading and validation
 │   ├── detection/                 # Web-origin attribution and opt-in process behavior rules
-│   │   ├── classifiers.go         # Exact process/argv/path observations without command inspection
-│   │   └── extended.go            # One finding per exec, bounded risk factors, detection-only marker
+│   │   ├── classifiers.go         # Process/path observations without command reconstruction
+│   │   ├── execution.go           # Code-free exact-argv/policy evidence and runtime-argument removal
+│   │   └── extended.go            # One finding per observation, bounded factors, detection-only marker
 │   ├── identity/                  # Event and boot-scoped process identifiers
 │   ├── hostmetrics/               # Bounded procfs/sysfs resource and counter-delta sampler
 │   ├── lineage/                   # Bounded process ancestry and source-context tracking
@@ -43,6 +47,7 @@ Xe-AntiShell/
 │   ├── procfs/                    # Minimal live process/cgroup snapshot
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
 │   ├── storage/                   # SQLite persistence and embedded migrations
+│   │   └── process_context.go     # Durable operation context merge preserving process lifecycle
 │   └── webpanel/                  # Authentication, monitoring APIs and embedded UI
 │       └── assets/                # Shared Korean labels, operator overview, feature states, history/resources/themes
 ├── configs/
@@ -59,12 +64,15 @@ Xe-AntiShell/
 │   ├── rpm/                       # RPM package skeleton
 │   ├── systemd/                   # Generic agent/web/central units
 │   └── tetragon/                  # Reviewed overrides plus pinned artifact/config/runtime/rollback helpers
+│       ├── observations.py        # Separate explicit --apply entry for monitor-only observation policies
+│       └── observation_*.py       # Fixed scope, real probes, ownership and transactional rollback
 ├── testdata/events/               # Controlled events and positive/legitimate process scenarios
 ├── third_party/licenses/          # Upstream Go/runtime license texts for redistribution
 ├── protocol/                      # Independently tagged, stdlib-only shared Go module
 │   ├── managed/                   # Wire contracts, signatures, removal and recovery primitives
 │   │   └── testdata/              # Pre-extraction signed-policy/removal compatibility fixtures
 │   └── model/                     # Canonical core events, findings and agent status definitions
+│       └── observations.go        # Optional code-free execution/file/network facts
 ├── scripts/
 │   ├── build-rpm.sh               # Checked source selection and isolated local RPM build
 │   ├── build_rpm_test.sh          # Mocked tools and real source archive checks
@@ -90,12 +98,17 @@ Xe-AntiShell/
 │   ├── standalone-mvp.md          # Detailed MVP design and validation plan
 │   ├── tetragon-runtime-rollout.md # Runtime status and eBPF rollout design
 │   ├── web-monitor-panel.md       # Local read-only web panel design
-│   └── webshell-process-detection.md # Opt-in process rules, privacy and staged validation
+│   ├── webshell-process-detection.md # Opt-in process rules, privacy and staged validation
+│   ├── execution-and-io-observations.md # Shared execution/file/network implementation contract
+│   ├── execution-evidence-detection.md # Exact invocation facts, privacy and detector limits
+│   └── in-process-code-observation.md # Phase 3 runtime-specific design; sensors not implemented
 ├── devdocs/analysis/
 │   ├── managed-v1-operations.md   # Generic enrollment, policy, removal and trust procedures
 │   └── tetragon-installation.ko.md # Existing-agent collector setup and manual procedure
 ├── devdocs/reviews/
 │   └── managed-agent-security.md  # Policy/delivery/response boundaries and tests
+├── devdocs/research/
+│   └── tetragon-observations.md   # Pinned v1.8.0 source evidence, hook semantics and coverage limits
 ├── Linux_Host_Security_Platform_Design_v0.1.md
 ├── README.md
 ├── LICENSE                       # Project MIT license
@@ -114,8 +127,8 @@ sentineld startup
 → host capability probe
 → live procfs lineage bootstrap
 → collector selection
-→ normalized event queue
-→ process lineage update
+→ privacy-bounded normalized event queue
+→ process lifecycle update or operation-only context merge
 → local rule evaluation
 → atomic evidence/finding/outbox storage
 → optional guarded post-exec response with durable intent/result
@@ -148,7 +161,7 @@ auditd dispatcher
 ### Event Collection
 
 - Related files: `internal/collector/`
-- Responsibility: adapt Tetragon JSON, Linux audit multi-record events, and deterministic replay fixtures to the common event model. Audit mode may filter completed events by exact executable basename and configured detection origin before database ingestion. Only one source owns process lifecycle events at a time.
+- Responsibility: adapt Tetragon JSON, Linux audit multi-record events, and deterministic replay fixtures to the common event model. Fixed owned Tetragon policies can additionally supply separate inline-option, regular-file-write and TCP-initiation metadata. Audit mode may filter completed events by exact executable basename and configured detection origin before database ingestion. Only one source owns process lifecycle events at a time.
 
 ### Live Process Context
 
@@ -163,7 +176,7 @@ auditd dispatcher
 ### Storage
 
 - Related files: `internal/storage/`
-- Responsibility: durable events, boot-scoped processes, findings/evidence links, retained-history operator summaries, capability snapshots, schema validation, and restart-safe stream sequence recovery.
+- Responsibility: durable events, boot-scoped processes, findings/evidence links, retained-history operator summaries, capability snapshots, schema validation, and restart-safe stream sequence recovery. Operation snapshots preserve immutable source fields while a separate durable context merge preserves known exits and observation bounds; retries do not ignore changed source parent/lifecycle identity.
 
 ### Local Management
 
@@ -191,7 +204,11 @@ auditd dispatcher
 - OS names are informational; runtime probes and collector startup determine available functionality.
 - Missing lineage and telemetry remain explicit instead of being inferred as trustworthy data.
 - Raw collector payloads are disabled by default and common secret-bearing argv
-  values are redacted before persistence.
+  values are redacted before persistence. Known Python/Node/PHP/Perl/Ruby argv
+  and raw payloads are removed before queueing after bounded invocation facts
+  are extracted. New operation events also discard raw payloads and argv;
+  ancestor argv is omitted. Legacy shell `-c` operands still use the existing
+  argument/privacy policy and are not covered by whole-runtime removal.
 - Durable source-event and finding identifiers make at-least-once collector
   retries idempotent; stream sequence watermarks survive retention and restart.
 - Live procfs state is authoritative on restart; stale audit process rows are
@@ -210,8 +227,18 @@ auditd dispatcher
   factors are observations, not maliciousness probabilities; every finding in
   this profile is detection-only, independently enforced by the response layer.
 - Audit exact argv requires validated argument counts and positions; incomplete
-  records do not become inline-code evidence. File/network observations are
-  not inferred from process tool execution.
+  records do not become inline-code evidence. Tetragon inline observations
+  require fixed policy/runtime/option proof, not reconstructed flattened argv.
+  File/network observations are not inferred from process tool execution.
+- The separate observation helper requires explicit `--apply` and an active,
+  installer-owned v1.8.0 setup. Kernel selectors bound executable names and file
+  prefixes; the agent separately requires configured web-origin retention.
+  `vfs_write` does not cover all writes, and TCP connect return zero means
+  initiated rather than established. Each capability needs its own actual
+  receipt; installation metadata is not runtime activation evidence. New policy
+  attachment and workload overhead still require target-host validation.
+- Phase 3 in-process code execution is design only. No runtime USDT/uprobe,
+  language agent or compile/eval sensor is implemented by these observations.
 - The local Unix HTTP/JSON API is separate from the central mTLS protocol.
   Monitoring reads are available to the local socket group; enrollment/removal
   mutations additionally require kernel-verified root peer credentials.

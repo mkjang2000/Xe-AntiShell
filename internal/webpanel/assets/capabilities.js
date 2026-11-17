@@ -2,6 +2,7 @@
 
 const capabilityNames = {
   "observation.process_exec": "실행 정보 수집",
+  "observation.interpreter_exec": "인터프리터 실행 옵션 관측",
   "observation.process_lineage": "서비스 실행 경로 추적",
   "response.terminate": "의심 프로세스 종료",
   "collector.tetragon": "실시간 수집기",
@@ -12,8 +13,8 @@ const capabilityNames = {
   "kernel.btf": "실행 수집 보조 정보",
   "kernel.cgroup": "서비스 구분 정보",
   "kernel.ebpf": "실시간 수집 환경",
-  "observation.file": "파일 활동 감시",
-  "observation.network": "네트워크 활동 감시",
+  "observation.file": "파일 쓰기 관측",
+  "observation.network": "TCP 연결 요청 관측",
   "observation.credential_change": "권한 변경 감시",
 };
 const capabilityOrder = Object.keys(capabilityNames);
@@ -70,6 +71,9 @@ function capabilityPresentation(name, value) {
         "collector.audit": "서버의 감사 기록에서 실행 정보를 수집하고 있습니다. 전체 수집 규칙의 적용 범위는 확인이 필요합니다.",
         "observation.process_exec": audit ? "실행을 관찰하며 탐지 대상 이력만 저장합니다. 현재 수집 방법은 프로세스 종료 정보를 제공하지 않습니다." : "실행을 관찰하며 탐지 대상 이력만 저장합니다.",
         "observation.process_lineage": audit ? "실행 기록과 현재 프로세스 정보로 서비스 실행 경로를 추정합니다. 종료 정보는 제공되지 않습니다." : "어떤 서비스에서 실행됐는지 추적합니다. 일부 상위 실행 정보가 누락될 수 있습니다.",
+        "observation.interpreter_exec": "실행 옵션 관측 이벤트를 수신했습니다. 전용 수집 정책의 옵션 조건 또는 분리된 실행 인자로 직접 코드·임시 스크립트 실행 요청을 구분합니다. 기존 프로세스 내부 실행과 실행 성공·코드 내용은 확인하지 않습니다.",
+        "observation.file": "선택한 수집 정책의 파일 쓰기 이벤트를 수신했습니다. 경로와 호출 반환값을 관측하며 파일 내용·모든 쓰기·디스크 반영을 보장하지 않습니다.",
+        "observation.network": "선택한 수집 정책의 TCP 연결 요청 이벤트를 수신했습니다. 대상과 호출 반환값을 관측하며 연결 완료·모든 통신·전송 내용은 확인하지 않습니다.",
       };
       return show("정상 수집", "active", descriptions[name] || "실행 정보를 수집하고 있습니다.", action, true);
     }
@@ -103,8 +107,9 @@ function capabilityPresentation(name, value) {
     return result;
   }
   if (capability.implementation !== "implemented") return result;
+  const scopedObservation = ["observation.interpreter_exec", "observation.file", "observation.network"].includes(name);
   if (runtime === "unverified") {
-    return show("확인 대기", "unverified", "수집 설정은 선택되었으며 실제 실행 정보가 들어오는지 확인하고 있습니다.");
+    return show("확인 대기", "unverified", scopedObservation ? "수집 정책이나 설정만으로 동작을 확인할 수 없습니다. 이 기능의 실제 관측 이벤트를 기다리고 있습니다." : "수집 설정은 선택되었으며 실제 실행 정보가 들어오는지 확인하고 있습니다.");
   }
   if (runtime === "available") return show("설정 대기", "unverified", "서버 조건은 확인했지만 실제 수집 동작은 아직 확인되지 않았습니다.", "사용할 기능이면 수집 설정을 확인하세요.");
   if (runtime === "inactive") return show("수집 안 함", "inactive", "현재 실행 정보를 받는 수집기가 연결되어 있지 않습니다.", "수집 설정과 연결 상태를 확인하세요.");

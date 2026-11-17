@@ -5,7 +5,7 @@ import (
 	"xe-antishell/internal/model"
 )
 
-const extendedRuleVersion = "0.2.0"
+const extendedRuleVersion = "0.3.0"
 
 func (e *Engine) evaluateExtended(event model.Event, lineage AncestorProvider) []model.Finding {
 	origin, matched := e.MatchWebOrigin(event, lineage)
@@ -43,7 +43,7 @@ func (e *Engine) evaluateExtended(event model.Event, lineage AncestorProvider) [
 	}}
 }
 
-// One execution has one primary rule; all observed contributions remain visible.
+// One observation event has one primary rule; its contributions remain visible.
 func extendedRule(signals processSignals, root bool) (string, string) {
 	switch {
 	case signals.shell && root:
@@ -56,6 +56,8 @@ func extendedRule(signals processSignals, root bool) (string, string) {
 		return "web-descendant-connection-tool", "웹 출처에서 연결 도구 실행 관측. 실제 연결 여부와 행위 확인 필요."
 	case signals.inline:
 		return "web-descendant-inline-interpreter", "웹 출처에서 인터프리터의 인라인 코드 실행 옵션 관측. 행위 확인 필요."
+	case signals.script:
+		return "web-descendant-temporary-script", "웹 출처에서 임시·메모리·파일 디스크립터 경로의 스크립트 실행 인자 관측. 실제 실행 여부와 행위 확인 필요."
 	case signals.download:
 		return "web-descendant-download-tool", "웹 출처에서 다운로드 도구 실행 관측. 전송 여부와 행위 확인 필요."
 	case signals.recon:
@@ -79,6 +81,7 @@ func extendedRisk(event model.Event, signals processSignals, root bool) ([]model
 		{signals.recon, "recon_tool", 20},
 		{signals.connection, "connection_tool", 45},
 		{signals.inline, "inline_interpreter", 45},
+		{signals.script, "temporary_script", 35},
 		{signals.temporary, "temporary_executable", 40},
 		{root, "root_identity", 10},
 		{fieldAvailable(event, "process.cwd") && temporaryPath(event.Process.CWD, true), "temporary_working_directory", 5},

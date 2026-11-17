@@ -69,10 +69,10 @@ func TestExtendedProcessCategoriesAndRisk(t *testing.T) {
 			if finding.RuleID != "web-descendant-"+test.category || finding.RiskScore != test.score || finding.Severity != test.severity {
 				t.Fatalf("unexpected classification: %+v", finding)
 			}
-			if !finding.DetectionOnly || finding.RuleVersion != "0.2.0" || finding.Confidence != .95 || len(finding.RiskFactors) > 8 {
+			if !finding.DetectionOnly || finding.RuleVersion != "0.3.0" || finding.Confidence != .95 || len(finding.RiskFactors) > 8 {
 				t.Fatalf("unexpected metadata: %+v", finding)
 			}
-			if finding.ID != identity.FindingID(finding.RuleID, "0.2.0", event.ID) || !reflect.DeepEqual(findings, engine.Evaluate(event, lineage.New())) {
+			if finding.ID != identity.FindingID(finding.RuleID, "0.3.0", event.ID) || !reflect.DeepEqual(findings, engine.Evaluate(event, lineage.New())) {
 				t.Fatal("replayed observation is not deterministic")
 			}
 			sum := 0

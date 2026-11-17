@@ -211,9 +211,11 @@ func (c *TetragonJSON) Close() error {
 }
 
 type tetragonEnvelope struct {
-	ProcessExec *tetragonProcessExec `json:"process_exec"`
-	ProcessExit *tetragonProcessExit `json:"process_exit"`
-	Time        time.Time            `json:"time"`
+	ProcessExec       *tetragonProcessExec `json:"process_exec"`
+	ProcessExit       *tetragonProcessExit `json:"process_exit"`
+	ProcessKprobe     *tetragonObservation `json:"process_kprobe"`
+	ProcessTracepoint *tetragonObservation `json:"process_tracepoint"`
+	Time              time.Time            `json:"time"`
 }
 
 type tetragonProcessExec struct {
@@ -254,6 +256,9 @@ func NormalizeTetragonJSON(raw []byte, ingestTime time.Time, metadata Metadata) 
 	var envelope tetragonEnvelope
 	if err := decodeSingleJSON(raw, &envelope); err != nil {
 		return model.Event{}, fmt.Errorf("decode tetragon event: %w", err)
+	}
+	if envelope.ProcessKprobe != nil || envelope.ProcessTracepoint != nil {
+		return normalizeTetragonObservation(envelope, ingestTime, metadata)
 	}
 	event := model.Event{
 		SchemaVersion: model.SchemaVersion,
@@ -298,6 +303,28 @@ func NormalizeTetragonJSON(raw []byte, ingestTime time.Time, metadata Metadata) 
 		event.ID = identity.SourceEventID(event.BootID, event.Source, event.Type, event.SourceEventID)
 	}
 
+	normalizeTetragonContext(&event, source, parent, ancestors)
+	if event.EventTime.IsZero() {
+		markPartial(&event, "event_time")
+	}
+	if source.ExecID == "" {
+		markPartial(&event, "process.exec_id")
+	}
+	if source.Binary == "" {
+		markPartial(&event, "process.exe")
+	}
+	if event.Process.EUID == model.UnknownCredentialID {
+		markPartial(&event, "process.euid")
+	}
+	if source.Arguments != "" {
+		// Tetragon exports a flattened argument string, so exact argv boundaries
+		// cannot be reconstructed without potentially changing evidence.
+		markPartial(&event, "process.argv_exact")
+	}
+	return event, nil
+}
+
+func normalizeTetragonContext(event *model.Event, source tetragonProcess, parent *tetragonProcess, ancestors []tetragonProcess) {
 	// Observation times describe receipt by this agent, separately from source
 	// lifecycle timestamps that may be delayed or ahead of the local clock.
 	observedAt := event.IngestTime
@@ -322,7 +349,7 @@ func NormalizeTetragonJSON(raw []byte, ingestTime time.Time, metadata Metadata) 
 				// selected only by a potentially reused PID.
 				event.Process.PPID = -1
 				parentConsistent = false
-				markPartial(&event, "process.parent_identity")
+				markPartial(event, "process.parent_identity")
 			}
 		}
 	}
@@ -361,24 +388,6 @@ func NormalizeTetragonJSON(raw []byte, ingestTime time.Time, metadata Metadata) 
 		}
 		event.Ancestors = append(event.Ancestors, contextProcess)
 	}
-	if event.EventTime.IsZero() {
-		markPartial(&event, "event_time")
-	}
-	if source.ExecID == "" {
-		markPartial(&event, "process.exec_id")
-	}
-	if source.Binary == "" {
-		markPartial(&event, "process.exe")
-	}
-	if event.Process.EUID == model.UnknownCredentialID {
-		markPartial(&event, "process.euid")
-	}
-	if source.Arguments != "" {
-		// Tetragon exports a flattened argument string, so exact argv boundaries
-		// cannot be reconstructed without potentially changing evidence.
-		markPartial(&event, "process.argv_exact")
-	}
-	return event, nil
 }
 
 func tetragonToProcess(source tetragonProcess, observedAt time.Time) model.Process {

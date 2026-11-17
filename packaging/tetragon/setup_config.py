@@ -9,6 +9,9 @@ from setup_common import SetupError, trusted_path
 
 TETRA = "/opt/xe-antishell/tetragon/v1.8.0/tetra"
 TETRA_ARGS = ["--server-address", "unix:///run/tetragon/tetragon.sock", "getevents", "-o", "json"]
+OBSERVATION_EXCLUDES = ",".join(parent + "." + field for parent in ("process", "parent", "ancestors")
+                               for field in ("arguments", "environment_variables"))
+OBSERVATION_ARGS = TETRA_ARGS + ["--exclude-fields", OBSERVATION_EXCLUDES]
 
 
 class LiteralScalar(str):
@@ -54,7 +57,7 @@ def mapping(parent, key):
     return value
 
 
-def prepare_config(path):
+def prepare_config(path, *, observations=False):
     trusted_path(path)
     if path.stat().st_size > 1024 * 1024:
         raise SetupError("에이전트 YAML이 크기 제한을 초과했습니다.")
@@ -77,7 +80,9 @@ def prepare_config(path):
             raise SetupError("에이전트 YAML의 agent/detection 구역을 확인하십시오.")
         collector["mode"] = "tetragon"
         tetragon["command"] = TETRA
-        tetragon["args"] = list(TETRA_ARGS)
+        # A repeat of the base installer must retain the observation helper's
+        # server-side privacy filter rather than silently exposing argv again.
+        tetragon["args"] = list(OBSERVATION_ARGS if observations or tetragon.get("args") == OBSERVATION_ARGS else TETRA_ARGS)
         socket = agent.get("socket_path", "/run/xe-antishell/sentineld.sock")
         if not isinstance(socket, str) or not socket.startswith("/") or "\x00" in socket or socket == "/":
             raise SetupError("에이전트의 절대 Unix 소켓 경로를 확인하십시오.")

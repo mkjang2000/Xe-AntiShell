@@ -117,6 +117,10 @@ already initialized server. Preserve the recovery file securely outside the host
   that predate the agent
 - Boot-scoped process lineage, SQLite evidence storage, and a local
   web-process-to-shell rule
+- Opt-in detection-only direct-script and inline-option observations for
+  Python/Node/PHP/Perl/Ruby, plus separate fixed-policy file-write/TCP-initiation
+  adapters and an explicit installation helper; new kernel policies still need
+  target-host attachment and workload validation
 - HTTP/JSON management API on a mode-`0660` Unix socket
 - Authenticated monitoring panel for agent health, findings, candidate events,
   capabilities, and process ancestry
@@ -155,7 +159,8 @@ The default rule detects shells descended from configured web origins. An
 optional detection-only profile also reports download tools (`curl`, `wget`),
 system-diagnostic tools (`id`, `whoami`, `uname`, `hostname`, `ps`), connection
 utilities (`nc`, `ncat`, `socat`), supported inline interpreter options, and
-executables under temporary or memory-backed paths. These are reviewable
+executables or direct interpreter script operands under temporary, memory-backed
+or file-descriptor paths. These are reviewable
 process observations; they do not establish a successful transfer, an actual
 connection, file modification or a confirmed webshell.
 
@@ -181,14 +186,28 @@ reasons and detection-only status. **All findings from the extended profile,
 including shell rules, are excluded from automatic termination**, even with an
 enforce policy and local termination opt-in.
 
-Inline interpreter classification requires a complete, exact argv and an
-explicit supported option before any script/module boundary. The Tetragon
-adapter omits flattened arguments, so it cannot provide this signal. Incomplete
-or fragmented audit argv is marked unknown and cannot prove an inline-code
-invocation. Ordinary Python/Node workers and tools outside configured web
-origins do not trigger these extra process rules. Legacy shell exceptions only
-suppress the matching shell behavior; they do not exempt a temporary executable
-or a distinct non-shell category.
+Inline interpreter classification uses either complete exact argv with a
+supported option before the first script/module boundary, or a separate
+`process.exec_observation` from a reviewed fixed Tetragon policy. Tetragon's
+flattened arguments are omitted and never reconstructed. Incomplete audit argv
+does not become exact evidence. The fixed policies recognize Python `-c`, Node
+`-e`/`--eval`/`-p`/`--print`, PHP `-r`, Perl `-e`/`-E` and Ruby `-e`; observing
+an option does not establish valid syntax or successful code execution.
+Direct risky script operands currently require exact argv. Ordinary workers
+and processes outside configured web origins do not trigger these extra rules.
+Legacy shell exceptions only suppress the matching shell behavior; they do not
+exempt an independent script, inline-option or temporary-executable observation.
+
+Before queueing, the agent keeps only bounded invocation facts and removes all
+argv and raw payloads for the five recognized interpreter families, including
+unsupported invocations. Ancestor argv and new operation-event raw payloads are
+also omitted. With the optional Tetragon observation subscription, the server
+excludes process/parent/ancestor arguments and environments from that stream;
+Tetragon still has its own transient argument-selector cache. This is not a
+complete command-privacy guarantee: legacy shell `-c` operands retain the prior
+argument policy, whose secret-name redactor does not remove arbitrary shell
+code. General raw collection remains off by default and should stay off for
+routine monitoring.
 
 Run an isolated replay check without installing a package or changing services:
 
@@ -200,8 +219,11 @@ The checker starts its own temporary agent, socket and database, replays fixed
 positive and legitimate-operation metadata, verifies findings and scores, then
 removes its resources. It never executes the depicted commands or downloads.
 This verifies the executable/persistence path, not real attack detection rates
-or live kernel collection. File/network/credential observation and multi-event
-attack-chain correlation remain future work.
+or live kernel collection. File/network adapters are separately available as
+described below; credential observation and multi-event attack-chain correlation
+remain future work. Phase 3 existing-process code execution is
+[a design deliverable](devdocs/plans/in-process-code-observation.md): no
+compile/eval, USDT/uprobe or language-agent sensor has been implemented.
 
 ## Commands
 
@@ -284,6 +306,9 @@ For a non-root local demonstration, use temporary paths and a replay JSONL file:
 - [Monitor-only deployment plan](devdocs/plans/monitor-deployment.md)
 - [Central management and installer sequence](devdocs/plans/central-management.md)
 - [Managed security policy, response, and monitoring scope](devdocs/plans/security-policy-and-monitoring.md)
+- [Execution and I/O observation contract](devdocs/plans/execution-and-io-observations.md)
+- [Invocation evidence and privacy boundaries](devdocs/plans/execution-evidence-detection.md)
+- [Phase 3 in-process code observation design](devdocs/plans/in-process-code-observation.md)
 - [Project structure](Project_tree.md)
 - [Managed v1 implementation and accessible panel](devdocs/plans/managed-v1-and-panel-accessibility.md)
 - [Central enrollment, policy and removal operations](devdocs/analysis/managed-v1-operations.md)
@@ -302,10 +327,11 @@ installed package; resolve the reported cause and retry.
 The central service has its own project, installer, RPM and service account.
 The agent package installs only `sentineld`, `sentinel` and `sentinel-web`.
 Agent updates do not restart central, and central updates do not restart the
-agent. Both use the published
-[`protocol v0.1.1`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.1/protocol)
-module; JSON schemas, signature domains, stored identities and approved
-policies are unchanged by project separation.
+agent. The released agent pins the published
+[`protocol v0.1.2`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.2/protocol)
+module, which adds optional typed execution/file/network facts. Existing
+signature domains, stored identities and approved policy bytes are unchanged;
+consumers need observation-aware software to display the new fields.
 
 For same-host validation, central defaults to HTTPS `127.0.0.1:9443` and a
 credentialed operator API on `127.0.0.1:9444`. A remote-agent deployment needs a
@@ -377,7 +403,8 @@ its service origins and executable path for each host before applying it.
 The unit examples are in `packaging/tetragon/`; the external Tetragon
 distribution is downloaded separately from this RPM. Tetragon uses a root-only
 Unix control socket and local health/metrics endpoints. No tracing or
-enforcement policies are installed.
+enforcement policies are installed by the base setup. The additional
+monitor-only observation policies below require a separate explicit command.
 
 For an agent that is already installed and enrolled, use the latest installer
 and its complete `packaging/` directory:
@@ -415,12 +442,77 @@ candidate events therefore explicitly lack exact argv evidence.
 
 `ACTIVE` in the panel means the agent has received actual selected-source
 execution evidence. Passive kernel support remains a separate indication.
-Installing Tetragon does not implement the file, network, credential-change,
-or integrity-verification subsystems. Those require their own adapters and
-validation.
+Base process collection does not activate file/network observation. Those
+capabilities require their own policies and actual accepted source events.
+Credential-change and integrity-verification subsystems remain unimplemented.
 
 See [rollout design](devdocs/plans/tetragon-runtime-rollout.md) for the source
 switching and validation boundaries.
+
+### Optional inline, file-write and TCP-initiation policies
+
+Update to observation-aware agent software first. With the full reviewed
+`packaging/` directory, inspect the helper and explicitly apply it as root:
+
+```bash
+python3 packaging/tetragon/observations.py --help
+sudo python3 packaging/tetragon/observations.py --apply
+```
+
+Without `--apply`, the command only prints usage and changes nothing. It needs
+Python 3.9+/PyYAML, x86_64, kernel BTF, and active Tetragon v1.8.0 and agent
+services owned by the base installer. Foreign/custom units, conflicting policy
+names, changed owned files or configuration require manual review. The manual
+Tetragon example is outside this helper's automatic integration scope.
+
+| Observation | Initial scope and result |
+| --- | --- |
+| Inline option | Fixed interpreter executable names and exact option positions 0–2 after argv[0]; at most two preceding reviewed switches. A script before `-c`/`-e` prevents the match. Three preceding switches are outside this policy's coverage. |
+| File write | Fixed executable-name suffixes, regular files and selected path prefixes at `vfs_write`; positive return means bytes written, zero no data, negative failed, missing unknown. |
+| TCP connect | The fixed executable set at `tcp_v4_connect`/`tcp_v6_connect`; zero means initiated, negative failed, missing unknown. It does not prove an established connection or delivered traffic. |
+
+The kernel executable set includes recognized web workers, the five interpreter
+families, Java/.NET, shells and selected I/O tools, with trusted installed
+canonical version names. Runtime selection checks executable-name suffixes,
+not a binary digest or a pinned executable directory. Arbitrarily renamed/custom
+binaries are outside the initial scope. Default file prefixes are `/tmp/`,
+`/var/tmp/`, `/dev/shm/`,
+`/var/www/` and `/srv/`. Repeat `--file-prefix /absolute/directory/` to replace
+that set; `/tmp/` is required for the private write probe. This does not cover
+all writev/mmap/io_uring writes, UDP, file contents or packet payloads. Kernel
+selection is followed by a separate agent web-origin retention check; observing
+a tool alone is not a file/network event or a maliciousness finding.
+
+The inline policy's three-position bound keeps its six Equal-filter maps within
+Tetragon v1.8.0's eight-slot string-map capacity. It does not impose that bound on
+the independent bounded exact-argv/audit classifier. The helper verifies zero,
+one and two approved preceding switches, and verifies that script-before-option
+and three-switch beyond-bound invocations produce no matching policy claim.
+
+The helper adds owned monitor-only policies, configures a subscription that
+excludes argv/environments, and may restart the agent when that subscription
+changes. It checks loaded hooks, benign positive/script-before-option probes,
+a private one-byte write and loopback TCP initiation with matching process
+identity. Missing runtimes and unavailable IPv6 remain partial/unverified;
+IPv4 coverage can remain available. Ownership and measured scope are recorded
+in root-only `/opt/xe-antishell/tetragon/observations.json`; that file alone
+cannot activate the agent's runtime capabilities. Review `sudo sentinel status`
+and `sudo sentinel capabilities` for actual receipt and health.
+
+Failures attempt to remove newly added owned policies and restore previous
+files, subscription and agent state, retaining root-only diagnostic backups.
+Repeating an unchanged verified scope avoids unnecessary changes; changing an
+existing scope requires manual review. Synthetic and mocked tests are supplemented
+by isolated live validation on EL9 kernel `5.14.0-687.66.1.el9_8.x86_64`: all eleven
+monitor policies loaded, installed Python/Node/PHP/Perl inline positive/negative
+probes passed, and a one-byte write plus IPv4/IPv6 loopback initiation were observed.
+Ruby was not installed. This verifies that host and those paths; other kernels,
+all I/O methods and sustained production load remain unverified. Validate each
+target's coverage and performance. The helper does not enable detection rules
+or automatic termination.
+
+See the [Korean application procedure](devdocs/analysis/tetragon-installation.ko.md)
+and [pinned-source coverage review](devdocs/research/tetragon-observations.md).
 
 ## Development validation
 

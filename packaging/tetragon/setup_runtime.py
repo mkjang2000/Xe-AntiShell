@@ -3,6 +3,7 @@
 import datetime
 import json
 import os
+import re
 import selectors
 import subprocess
 import time
@@ -132,8 +133,17 @@ def verify_exec(runner, timeout=15):
 
 
 def timestamp(value):
+    # Python 3.9 accepts microseconds only; protobuf timestamps use nanoseconds.
+    # Preserve the timezone while reducing only sub-microsecond precision.
+    if not isinstance(value, str):
+        return 0
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})", value)
+    if not match:
+        return 0
+    fraction = "." + match[2][:6] if match[2] else ""
+    zone = "+00:00" if match[3] == "Z" else match[3]
     try:
-        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        return datetime.datetime.fromisoformat(match[1] + fraction + zone).timestamp()
     except (ValueError, TypeError, AttributeError):
         return 0
 

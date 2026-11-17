@@ -94,6 +94,9 @@ func processName(process model.Process) string {
 }
 
 func (e *Engine) Evaluate(event model.Event, lineage AncestorProvider) []model.Finding {
+	if event.Type == "process.exec_observation" && e.extendedProcessRules {
+		return e.evaluateExtended(event, lineage)
+	}
 	if event.Type != "process.exec" {
 		return nil
 	}

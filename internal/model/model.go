@@ -33,18 +33,21 @@ const (
 )
 
 type (
-	Platform          = shared.Platform
-	CapabilityState   = shared.CapabilityState
-	Capability        = shared.Capability
-	CapabilityReport  = shared.CapabilityReport
-	Completeness      = shared.Completeness
-	LineageConfidence = shared.LineageConfidence
-	Process           = shared.Process
-	Event             = shared.Event
-	RiskFactor        = shared.RiskFactor
-	Finding           = shared.Finding
-	AgentMode         = shared.AgentMode
-	Health            = shared.Health
-	AgentStatus       = shared.AgentStatus
-	CollectorHealth   = shared.CollectorHealth
+	Platform             = shared.Platform
+	CapabilityState      = shared.CapabilityState
+	Capability           = shared.Capability
+	CapabilityReport     = shared.CapabilityReport
+	Completeness         = shared.Completeness
+	LineageConfidence    = shared.LineageConfidence
+	Process              = shared.Process
+	ExecutionObservation = shared.ExecutionObservation
+	FileObservation      = shared.FileObservation
+	NetworkObservation   = shared.NetworkObservation
+	Event                = shared.Event
+	RiskFactor           = shared.RiskFactor
+	Finding              = shared.Finding
+	AgentMode            = shared.AgentMode
+	Health               = shared.Health
+	AgentStatus          = shared.AgentStatus
+	CollectorHealth      = shared.CollectorHealth
 )

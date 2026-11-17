@@ -52,7 +52,9 @@ func TestProbeFullModernFixture(t *testing.T) {
 	assertState(t, report, CgroupCapability, model.CapabilitySupported)
 	assertState(t, report, ProcessExecCapability, model.CapabilityLimited)
 	assertState(t, report, ProcessLineageCapability, model.CapabilityLimited)
-	assertState(t, report, FileCapability, model.CapabilityUnsupported)
+	assertState(t, report, FileCapability, model.CapabilityLimited)
+	assertState(t, report, NetworkCapability, model.CapabilityLimited)
+	assertState(t, report, InterpreterCapability, model.CapabilityLimited)
 }
 
 func TestProbeLegacyFixtureDoesNotOverclaim(t *testing.T) {

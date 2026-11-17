@@ -41,6 +41,10 @@ func (s *Service) retainTetragonEvent(event model.Event) bool {
 }
 
 func (s *Service) retainTetragonEventWithDetector(event model.Event, detector *detection.Engine) bool {
+	if isOperationEvent(event.Type) {
+		_, matched := detector.MatchWebOrigin(event, s.lineage)
+		return matched
+	}
 	policy := s.config.Collector.Tetragon
 	if len(policy.IncludeExecutables) != 0 {
 		name := strings.ToLower(filepath.Base(event.Process.Exe))

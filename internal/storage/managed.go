@@ -89,7 +89,13 @@ func (s *Store) PersistObservation(ctx context.Context, event model.Event, findi
 	}
 	for _, process := range append(append([]model.Process(nil), event.Ancestors...), event.Process) {
 		if process.Key != "" && process.PID > 0 {
-			if err := child.SaveProcess(ctx, event.BootID, process); err != nil {
+			var err error
+			if isContextObservation(event.Type) {
+				err = child.saveProcessContext(ctx, event.BootID, process)
+			} else {
+				err = child.SaveProcess(ctx, event.BootID, process)
+			}
+			if err != nil {
 				return err
 			}
 		}

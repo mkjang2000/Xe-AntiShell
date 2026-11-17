@@ -133,7 +133,5 @@ def check_conflicts(paths, services):
         if (services.show("tetragon.service", "NeedDaemonReload") == "yes"
                 or exec_arguments(services.show("tetragon.service", "ExecStart")) != shlex.split(expected)):
             raise SetupError("로드된 Tetragon 실행 설정이 설치기 unit과 달라 수동 통합이 필요합니다.")
-    if paths.policies.exists() or paths.policies.is_symlink():
-        trusted_path(paths.policies, directory=True)
-        if any(paths.policies.iterdir()):
-            raise SetupError("설치기 전용 정책 디렉터리가 비어 있지 않습니다.")
+    from observation_state import owned_policy_state
+    owned_policy_state(paths)

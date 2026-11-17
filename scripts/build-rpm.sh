@@ -83,7 +83,7 @@ build_source_paths() (
     [[ ! -L "$path" ]] || { build_fail "Source symlink is not allowed: $path"; return 1; }
     [[ ! -f "$path" ]] || printf '%s\0' "$path"
   done
-  for source_dir in cmd internal protocol scripts testdata packaging/tetragon devdocs/plans devdocs/reviews configs/examples .github/workflows third_party/licenses; do
+  for source_dir in cmd internal protocol scripts testdata packaging/tetragon devdocs/plans devdocs/reviews devdocs/research configs/examples .github/workflows third_party/licenses; do
     [[ ! -L "$source_dir" ]] || { build_fail "Source directory symlink is not allowed: $source_dir"; return 1; }
     [[ -d "$source_dir" ]] || continue
     if [[ -n $(find "$source_dir" -type l -print -quit) ]]; then

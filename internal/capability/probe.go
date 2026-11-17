@@ -38,6 +38,7 @@ const (
 	CredentialCapability     = "observation.credential_change"
 	FileCapability           = "observation.file"
 	NetworkCapability        = "observation.network"
+	InterpreterCapability    = "observation.interpreter_exec"
 )
 
 type UnameFunc func() (release, architecture string, err error)
@@ -136,10 +137,19 @@ func (p *Prober) deriveObservationCapabilities(report *model.CapabilityReport) {
 	report.Capabilities[ProcessLineageCapability] = capability(ProcessLineageCapability, state, provider, lineageReason, nil)
 	report.Capabilities[CredentialCapability] = capability(CredentialCapability, model.CapabilityUnsupported,
 		"standalone-mvp", "credential-change collection is not implemented in this MVP", nil)
-	report.Capabilities[FileCapability] = capability(FileCapability, model.CapabilityUnsupported,
-		"standalone-mvp", "file observation is not implemented in this MVP", nil)
-	report.Capabilities[NetworkCapability] = capability(NetworkCapability, model.CapabilityUnsupported,
-		"standalone-mvp", "network observation is not implemented in this MVP", nil)
+	observationState := model.CapabilityUnsupported
+	observationProvider := "tetragon"
+	observationReason := "Tetragon is required for optional operation policies"
+	if tetragon.State == model.CapabilitySupported || tetragon.State == model.CapabilityLimited {
+		observationState = model.CapabilityLimited
+		observationReason = "optional owned Tetragon policies require load and real event verification"
+	}
+	for _, name := range []string{FileCapability, NetworkCapability, InterpreterCapability} {
+		report.Capabilities[name] = capability(name, observationState, observationProvider, observationReason, nil)
+	}
+	if observationState == model.CapabilityUnsupported && (audit.State == model.CapabilitySupported || audit.State == model.CapabilityLimited) {
+		report.Capabilities[InterpreterCapability] = capability(InterpreterCapability, model.CapabilityLimited, "audit", "complete audit argv may provide invocation evidence; real event verification is required", nil)
+	}
 }
 
 func (p *Prober) probePlatform(hostname func() (string, error), unameFn UnameFunc) (model.Platform, model.Capability) {
