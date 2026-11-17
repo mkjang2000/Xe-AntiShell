@@ -153,3 +153,22 @@ func TestUpdateReportsRequireFixedDiagnosticsAndObservedPackage(t *testing.T) {
 		t.Fatal("incomplete update support accepted")
 	}
 }
+
+func TestUpdateRPMVersionSyntaxAndEpochBuildIdentity(t *testing.T) {
+	pack := updateFixture().Release.Package
+	for _, bad := range []string{"0.1-beta", "0.1%macro", "0.1/escape", "0.1\nprivate"} {
+		copy := pack
+		copy.Version = bad
+		if copy.Validate() == nil {
+			t.Fatal("invalid RPM component accepted")
+		}
+	}
+	pack.Version = "1.0~rc1^snapshot+2"
+	pack.Epoch = 2
+	if err := pack.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := pack.RunningVersion(); got != "2:1.0~rc1^snapshot+2-23.el9.x86_64" || !validBuildVersion(got) {
+		t.Fatal("epoch/prerelease build identity was lost")
+	}
+}

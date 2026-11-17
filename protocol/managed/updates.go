@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math"
 	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -105,7 +106,8 @@ type UpdateReport struct {
 	ObservedAt       time.Time   `json:"observed_at"`
 }
 
-var rpmComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+~^%-]{0,127}$`)
+var rpmComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+~^]{0,127}$`)
+var updateBuildVersion = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+~^:-]{0,127}$`)
 var updateHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var elRelease = regexp.MustCompile(`(?:^|\.)el(7|8|9|10)(?:\.|$)`)
 
@@ -114,6 +116,16 @@ func (p RPMPackage) Validate() error {
 		return errors.New("unsupported agent RPM metadata")
 	}
 	return nil
+}
+
+// RunningVersion is also injected into packaged daemon builds. Epoch must not
+// disappear when distinguishing a replaced package from a running old daemon.
+func (p RPMPackage) RunningVersion() string {
+	version := p.Version + "-" + p.Release + "." + p.Arch
+	if p.Epoch != 0 {
+		version = strconv.FormatUint(p.Epoch, 10) + ":" + version
+	}
+	return version
 }
 
 func (r UpdateRelease) Validate() error {
@@ -257,4 +269,4 @@ func updateInterval(issued, expires time.Time, maximum time.Duration) bool {
 func updateCurrent(issued, expires, now time.Time) bool {
 	return !issued.After(now.Add(time.Minute)) && now.Before(expires)
 }
-func validBuildVersion(value string) bool { return validName(value, true) && len(value) <= 128 }
+func validBuildVersion(value string) bool { return updateBuildVersion.MatchString(value) }
