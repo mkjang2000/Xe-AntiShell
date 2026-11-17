@@ -27,6 +27,39 @@ The token/recovery files must be owner-only. Keep the recovery file securely
 outside this host. Existing enrollment and recovery state survive upgrades;
 project/package separation requires no reenrollment or new CA.
 
+### Failed First Enrollment
+
+A running daemon with `enrolled: false` means local startup succeeded but central
+registration has not completed. Keep the existing recovery file and pending
+identity; do not delete the database to retry. Obtain a fresh installation code
+for the same agent ID if the previous one expired.
+
+After a failed attempt, check `sentinel managed status` and
+`journalctl -u sentineld -n 60 --no-pager`. Newer agents report a fixed enrollment
+stage or network category without request credentials. `last_error` is held in
+memory; the journal is the record after a daemon restart. Earlier agents can
+show an empty error despite a failed enrollment.
+
+Check connectivity without sending an enrollment token:
+
+```sh
+getent ahostsv4 central.example.internal
+timeout 8 openssl s_client -connect central.example.internal:9443 \
+  -servername central.example.internal -brief </dev/null
+printf 'exit=%s\n' "$?"
+```
+
+Exit 124 means the probe timed out. A private-CA verification error in this
+unauthenticated probe is expected unless that CA is already in the system trust
+store; it still establishes that TCP/TLS reached a peer. Actual enrollment must
+validate the CA embedded in the trusted installation code. Never bypass that
+validation or send a token using an unverified connection.
+
+If the listener is healthy locally, verify the actual external path. A local
+connection to the public hostname does not exercise the upstream firewall. A
+bounded SYN-only packet capture on both hosts can distinguish absent requests
+from missing return traffic without recording TLS bodies.
+
 ## Policy and Delivery Checks
 
 Check `enrolled`, `policy.desired_revision`, `policy.active_revision`,
@@ -36,7 +69,7 @@ collector-coverage checks. A centrally committed ACK is required before local
 outbox deletion; offline operation keeps local detection and bounded retries.
 
 The shared contract is
-[`protocol/managed`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.0/protocol/managed).
+[`protocol/managed`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.1/protocol/managed).
 Defaults remain observe/none. Extended process rules are opt-in, require empty
 executable filters and are independently excluded from automatic termination.
 

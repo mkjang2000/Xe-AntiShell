@@ -100,33 +100,41 @@ func (s *Service) Enroll(ctx context.Context, url, agentID string, caPEM []byte,
 	return s.EnrollWithRecovery(ctx, url, agentID, caPEM, token, code)
 }
 
-func (s *Service) EnrollWithRecovery(ctx context.Context, url, agentID string, caPEM []byte, token, code string) (string, error) {
+func (s *Service) EnrollWithRecovery(ctx context.Context, url, agentID string, caPEM []byte, token, code string) (recovery string, err error) {
 	runtime := s.managedRuntime
 	runtime.enrollmentMu.Lock()
 	defer runtime.enrollmentMu.Unlock()
+	stage := enrollmentInvalidSetup
+	defer func() { s.recordEnrollmentResult(stage, err) }()
 	if _, err := managed.NewRecoveryVerifier(agentID, "pending", code); err != nil {
 		return "", err
 	}
+	stage = enrollmentLocalState
 	if existing, err := s.store.ManagedState(ctx); err == nil {
 		if existing.URL == url && existing.AgentID == agentID && bytes.Equal([]byte(existing.CAPEM), caPEM) && managed.VerifyRecoveryCode(existing.Recovery, agentID, existing.EnrollmentID, code) {
 			return code, nil
 		}
+		stage = enrollmentExistingIdentityMismatch
 		return "", errors.New("agent is already enrolled with a different identity or recovery code")
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		return "", err
 	}
+	stage = enrollmentInvalidSetup
 	client, err := managedclient.New(url, caPEM, nil, nil)
 	if err != nil {
 		return "", err
 	}
 	defer client.Close()
+	stage = enrollmentLocalState
 	pending, err := s.store.PendingEnrollment(ctx)
 	if errors.Is(err, storage.ErrNotFound) {
+		stage = enrollmentInvalidSetup
 		keyPEM, csrPEM, err := managedclient.GenerateCSR(agentID)
 		if err != nil {
 			return "", err
 		}
 		pending = storage.PendingEnrollment{URL: url, AgentID: agentID, CAPEM: string(caPEM), KeyPEM: string(keyPEM), CSRPEM: string(csrPEM)}
+		stage = enrollmentLocalState
 		if err := s.store.SavePendingEnrollment(ctx, pending); err != nil {
 			return "", err
 		}
@@ -134,23 +142,28 @@ func (s *Service) EnrollWithRecovery(ctx context.Context, url, agentID string, c
 		return "", err
 	}
 	if pending.URL != url || pending.AgentID != agentID || !bytes.Equal([]byte(pending.CAPEM), caPEM) {
+		stage = enrollmentPendingIdentityMismatch
 		return "", errors.New("pending enrollment is pinned to a different central identity")
 	}
 	s.statusMu.RLock()
 	hostname := s.report.Platform.Hostname
 	s.statusMu.RUnlock()
+	stage = enrollmentCentralRequest
 	response, err := client.Enroll(ctx, token, managed.EnrollRequest{AgentID: agentID, CSRPEM: pending.CSRPEM, Hostname: hostname})
 	if err != nil {
 		return "", err
 	}
+	stage = enrollmentInvalidResponse
 	if err := managedclient.ValidateEnrollment(response, []byte(pending.KeyPEM), caPEM, agentID, time.Now()); err != nil {
 		return "", err
 	}
+	stage = enrollmentInvalidSetup
 	verifier, err := managed.NewRecoveryVerifier(agentID, response.EnrollmentID, code)
 	if err != nil {
 		return "", err
 	}
 	state := storage.ManagedState{URL: url, AgentID: agentID, EnrollmentID: response.EnrollmentID, CAPEM: string(caPEM), CertificatePEM: response.CertificatePEM, KeyPEM: pending.KeyPEM, PolicyKeyID: response.PolicyKeyID, PolicyPublicKey: response.PolicyPublicKey, Recovery: verifier}
+	stage = enrollmentLocalState
 	if err := s.store.SaveManagedState(ctx, state); err != nil {
 		return "", err
 	}
@@ -227,7 +240,7 @@ func (s *Service) managedError(operation, message string) {
 		runtime.operationErrors[operation] = message
 	}
 	var active []string
-	for _, name := range []string{"identity", "delivery", "heartbeat", "policy", "history"} {
+	for _, name := range []string{"identity", "enrollment", "delivery", "heartbeat", "policy", "history"} {
 		if message := runtime.operationErrors[name]; message != "" {
 			active = append(active, message)
 		}

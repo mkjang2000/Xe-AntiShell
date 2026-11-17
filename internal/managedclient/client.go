@@ -175,7 +175,7 @@ func (c *Client) request(ctx context.Context, method, endpoint, token string, in
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
-		return 0, ErrTransport
+		return 0, classifyTransportError(err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

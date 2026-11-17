@@ -39,7 +39,7 @@ Xe-AntiShell/
 │   ├── lineage/                   # Bounded process ancestry and source-context tracking
 │   ├── localapi/                  # HTTP/JSON API and client over Unix socket
 │   ├── model/                     # Shared core aliases plus agent-only history/UI models
-│   ├── managedclient/             # Pinned-CA HTTPS enrollment and mTLS transport
+│   ├── managedclient/             # Pinned-CA HTTPS, mTLS and safe transport diagnostics
 │   ├── procfs/                    # Minimal live process/cgroup snapshot
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
 │   ├── storage/                   # SQLite persistence and embedded migrations
@@ -70,6 +70,7 @@ Xe-AntiShell/
 │   ├── check-detection.py         # Temporary agent/CLI replay check without live changes
 │   └── check_source_test.py       # Isolated Git/archive hygiene regression tests
 ├── devdocs/plans/
+│   ├── enrollment-diagnostics.md  # Credential-safe failure categories and enrollment status
 │   ├── interactive-installation.md # TTY workflow and trusted single-code enrollment
 │   ├── rocky10-package-validation.md # EL10 userspace/RPM scope and kernel validation boundary
 │   ├── git-readiness.md           # Installer, source privacy, Git and validation scope

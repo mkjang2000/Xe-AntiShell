@@ -198,9 +198,10 @@ func TestClientRejectsWrongCAHostnameAndEnrollmentCertificate(t *testing.T) {
 	for _, test := range []struct {
 		name, base string
 		ca         []byte
+		category   string
 	}{
-		{"wrong CA", "https://central.test", other.caPEM},
-		{"wrong hostname", "https://not-central.test", pki.caPEM},
+		{"wrong CA", "https://central.test", other.caPEM, "certificate_untrusted"},
+		{"wrong hostname", "https://not-central.test", pki.caPEM, "certificate_hostname"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client, err := New(test.base, test.ca, nil, nil)
@@ -210,7 +211,7 @@ func TestClientRejectsWrongCAHostnameAndEnrollmentCertificate(t *testing.T) {
 			defer client.Close()
 			pipeTransport(client, pki, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("untrusted TLS connection reached HTTP handler") }), nil)
 			_, err = client.Enroll(context.Background(), "secret", managed.EnrollRequest{AgentID: "agent-a", CSRPEM: string(csr)})
-			if !errors.Is(err, ErrTransport) {
+			if !errors.Is(err, ErrTransport) || TransportCategory(err) != test.category {
 				t.Fatalf("untrusted TLS error=%v", err)
 			}
 		})
