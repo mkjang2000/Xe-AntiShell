@@ -72,6 +72,7 @@ Xe-AntiShell/
 │   ├── check-detection.py         # Temporary agent/CLI replay check without live changes
 │   └── check_source_test.py       # Isolated Git/archive hygiene regression tests
 ├── devdocs/plans/
+│   ├── capability-report-consistency.md # Configured collector discovery and independent live evidence
 │   ├── tetragon-installation.md    # Optional collector install, verification and rollback design
 │   ├── enrollment-diagnostics.md  # Credential-safe failure categories and enrollment status
 │   ├── interactive-installation.md # TTY workflow and trusted single-code enrollment

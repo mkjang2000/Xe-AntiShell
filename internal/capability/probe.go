@@ -50,6 +50,9 @@ type Prober struct {
 	Now      func() time.Time
 	Hostname func() (string, error)
 	Uname    UnameFunc
+	// ConfiguredTetraCommand is the agent's absolute event-client path. When
+	// supplied, another executable on PATH cannot satisfy this prerequisite.
+	ConfiguredTetraCommand string
 }
 
 func NewProber() *Prober {
@@ -230,14 +233,27 @@ func (p *Prober) probeAudit(kernelRelease string) model.Capability {
 
 func (p *Prober) probeTetragon(kernelRelease string, btf model.Capability, lookPath func(string) (string, error)) model.Capability {
 	details := make(map[string]string)
-	if path, err := lookPath("tetragon"); err == nil {
-		details["tetragon"] = path
-	}
-	if path, err := lookPath("tetra"); err == nil {
+	if command := p.ConfiguredTetraCommand; command != "" {
+		details["configured_command"] = command
+		if !filepath.IsAbs(command) {
+			return capability(TetragonCapability, model.CapabilityUnsupported, "passive-probe", "configured tetra command must be an absolute path", details)
+		}
+		path, err := lookPath(p.path(command))
+		if err != nil {
+			details["command_error"] = err.Error()
+			return capability(TetragonCapability, model.CapabilityUnsupported, "passive-probe", "configured tetra executable was not found or is not executable", details)
+		}
 		details["tetra"] = path
-	}
-	if len(details) == 0 {
-		return capability(TetragonCapability, model.CapabilityUnsupported, "passive-probe", "neither tetragon nor tetra executable was found", nil)
+	} else {
+		if path, err := lookPath("tetragon"); err == nil {
+			details["tetragon"] = path
+		}
+		if path, err := lookPath("tetra"); err == nil {
+			details["tetra"] = path
+		}
+		if len(details) == 0 {
+			return capability(TetragonCapability, model.CapabilityUnsupported, "passive-probe", "neither tetragon nor tetra executable was found", nil)
+		}
 	}
 	if !kernelAtLeast(kernelRelease, 4, 19) {
 		return capability(TetragonCapability, model.CapabilityUnsupported, "passive-probe", "kernel is below Tetragon's minimum 4.19 requirement", details)

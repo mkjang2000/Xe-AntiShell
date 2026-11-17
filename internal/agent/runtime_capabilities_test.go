@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +15,61 @@ import (
 	"xe-antishell/internal/model"
 	"xe-antishell/internal/storage"
 )
+
+func TestCapabilityProberUsesConfiguredTetraCommand(t *testing.T) {
+	for _, injected := range []bool{false, true} {
+		name := "default"
+		if injected {
+			name = "injected"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg, store, _ := newTestDependencies(t, config.CollectorAuto, func(cfg *config.Config) {
+				cfg.Collector.Tetragon.Command = "/opt/xe-antishell/tetragon/v1.8.0/tetra"
+			})
+			defer store.Close()
+			var supplied CapabilityProber
+			wantCommand := cfg.Collector.Tetragon.Command
+			if injected {
+				custom := capability.NewProber()
+				custom.ConfiguredTetraCommand = "/custom/tetra"
+				wantCommand = custom.ConfiguredTetraCommand
+				supplied = custom
+			}
+			s, err := NewWithProcessSource(cfg, store, supplied, staticProcessSource{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if injected && s.prober != supplied {
+				t.Fatal("injected capability prober was replaced")
+			}
+			p := s.prober.(*capability.Prober)
+			p.Root = t.TempDir()
+			btfPath := filepath.Join(p.Root, "sys/kernel/btf/vmlinux")
+			if err := os.MkdirAll(filepath.Dir(btfPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(btfPath, []byte("btf"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			p.Uname = func() (string, string, error) { return "5.14.0-test", "x86_64", nil }
+			wantPath := filepath.Join(p.Root, wantCommand[1:])
+			p.LookPath = func(path string) (string, error) {
+				if path == wantPath {
+					return path, nil
+				}
+				return "", errors.New("not found")
+			}
+			report, err := s.RefreshCapabilities(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := report.Capabilities[capability.TetragonCapability]
+			if value.State != model.CapabilityLimited || value.Details["configured_command"] != wantCommand || value.Details["tetra"] != wantPath || value.RuntimeState == "active" {
+				t.Fatalf("capability probe did not use its configured client: %#v", value)
+			}
+		})
+	}
+}
 
 type runtimeTestCollector struct {
 	mu     sync.Mutex

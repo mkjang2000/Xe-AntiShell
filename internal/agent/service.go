@@ -114,7 +114,9 @@ func NewWithProcessSource(cfg config.Config, store *storage.Store, prober Capabi
 		return nil, fmt.Errorf("validate agent configuration: %w", err)
 	}
 	if prober == nil {
-		prober = capability.NewProber()
+		defaultProber := capability.NewProber()
+		defaultProber.ConfiguredTetraCommand = cfg.Collector.Tetragon.Command
+		prober = defaultProber
 	}
 	service := &Service{
 		config:        cfg,

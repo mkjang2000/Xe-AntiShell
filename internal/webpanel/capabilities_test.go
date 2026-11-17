@@ -76,13 +76,41 @@ assert.equal(value.title,"의심 프로세스 종료");assert.equal(value.label,
 value=present("response.terminate",fixture({state:"supported",runtime_reason:"host-local opt-in enabled; strict per-process identity checks still apply"}));
 assert.equal(value.label,"조건부 사용");assert.equal(value.tone,"unverified");assert.equal(value.active,false);assert.match(value.description,/보안 정책과 안전 조건/);
 
-for(const state of ["unsupported","error","unexpected",undefined]){
- value=present("collector.tetragon",fixture({state}));
- assert.notEqual(value.tone,"active");assert.equal(value.active,false);assert.notEqual(value.label,"정상 수집");
+for(const name of ["collector.tetragon","collector.audit","observation.process_exec","observation.process_lineage"]){
+ for(const state of ["unsupported","error"]){
+  value=present(name,fixture({state,reason:"RAW_PASSIVE_DIAGNOSTIC"}));
+  assert.equal(value.label,"정상 수집");assert.equal(value.tone,"active");assert.equal(value.active,true);
+  assert.equal(value.action,"실동작과 사전 검사 결과가 다릅니다. 기술 정보에서 사전 검사 진단을 확인하세요.");
+  assert.doesNotMatch(value.description+value.action,/RAW_PASSIVE_DIAGNOSTIC|unsupported|error/);
+ }
 }
-for(const runtime_state of ["error","unexpected",undefined]){
- value=present("collector.tetragon",fixture({runtime_state}));
- assert.notEqual(value.tone,"active");assert.equal(value.active,false);
+for(const state of ["supported","limited","unsupported","error"]){
+ value=present("kernel.ebpf",fixture({state}));
+ assert.equal(value.label,"동작 확인");assert.equal(value.tone,"active");assert.equal(value.active,false);
+ assert.match(value.description,/프로세스 실행 수집에 사용된 커널 기능/);
+ assert.equal(Boolean(value.action),state==="unsupported"||state==="error");
+}
+for(const name of ["collector.tetragon","observation.process_exec","kernel.ebpf"]){
+ for(const state of ["unexpected",undefined]){
+  value=present(name,fixture({state}));
+  assert.notEqual(value.tone,"active");assert.equal(value.active,false);assert.notEqual(value.label,"정상 수집");
+ }
+ for(const implementation of ["planned","unexpected",undefined]){
+  value=present(name,fixture({implementation}));
+  assert.notEqual(value.tone,"active");assert.equal(value.active,false);
+ }
+ for(const state of ["supported","limited","unsupported","error"]){
+  for(const runtime_state of ["error","unverified","unexpected",undefined]){
+   value=present(name,fixture({state,runtime_state}));
+   assert.notEqual(value.tone,"active");assert.equal(value.active,false);
+  }
+ }
+}
+for(const name of ["response.terminate","integrity.tpm","integrity.ima","kernel.btf","kernel.cgroup","host.platform"]){
+ for(const state of ["supported","limited","unsupported","error"]){
+  value=present(name,fixture({state}));
+  assert.notEqual(value.tone,"active");assert.equal(value.active,false);
+ }
 }
 value=present("collector.tetragon",fixture({runtime_state:"unverified",runtime_reason:"selected collector stream is not running"}));
 assert.equal(value.label,"수집 중단");assert.equal(value.tone,"error");assert.match(value.action,/연결 상태/);
@@ -102,16 +130,17 @@ assert.equal(value.label,"정보 있음");assert.equal(value.tone,"inactive");as
 
 const operatorCapabilityRowsBehavior = `
 context.items={
- "collector.tetragon":fixture(),
+ "collector.tetragon":fixture({state:"unsupported",reason:"RAW_PASSIVE_DIAGNOSTIC"}),
  "collector.audit":fixture({runtime_state:"inactive",runtime_reason:"not the selected process collector"}),
- "observation.process_exec":fixture(),
+ "observation.process_exec":fixture({state:"error",reason:"RAW_PASSIVE_ERROR"}),
  "response.terminate":fixture({state:"supported",runtime_state:"available",runtime_reason:"host-local termination opt-in is disabled"}),
+ "kernel.ebpf":fixture({state:"error",reason:"RAW_KERNEL_DIAGNOSTIC"}),
  "integrity.tpm":fixture({state:"unsupported",runtime_state:"inactive",implementation:"planned"}),
  "observation.file":fixture({state:"unsupported",runtime_state:"inactive",implementation:"planned"}),
 };
 vm.runInContext("renderCapabilities(items)",context);
 assert.equal(get("capabilityList").children.length,4);
-assert.equal(get("prerequisiteCapabilityList").children.length,1);
+assert.equal(get("prerequisiteCapabilityList").children.length,2);
 assert.equal(get("plannedCapabilityList").children.length,1);
 assert.equal(get("capabilitySummary").textContent,"정상 수집 2개");
 assert.equal(get("plannedCapabilities").open,false);
@@ -120,9 +149,18 @@ for(const row of get("capabilityList").children){
  assert.equal(row.children.filter(child=>child.className==="cap-badges")[0].children.length,1,"one representative status per row");
  const technical=row.children.find(child=>child.tagName==="details");assert.ok(technical);assert.equal(technical.open,false);
  assert.equal(technical.children[0].textContent,"기술 정보");
- assert.doesNotMatch(outsideDetails(row),/collector\.|observation\.|response\.|runtime|Tetragon|environment|limited/);
+ assert.doesNotMatch(outsideDetails(row),/collector\.|observation\.|response\.|runtime|Tetragon|environment|limited|unsupported|RAW_PASSIVE/);
 }
 let row=get("capabilityList").children.find(row=>flatten(row).includes("collector.tetragon"));
+assert.match(outsideDetails(row),/정상 수집/);assert.match(outsideDetails(row),/실동작과 사전 검사 결과가 다릅니다/);
+assert.match(flatten(row.children.find(child=>child.tagName==="details")),/unsupported.*RAW_PASSIVE_DIAGNOSTIC/);
+const executionRow=get("capabilityList").children.find(row=>flatten(row).includes("observation.process_exec"));
+assert.match(outsideDetails(executionRow),/정상 수집/);assert.match(outsideDetails(executionRow),/사전 검사 진단을 확인/);
+assert.match(flatten(executionRow.children.find(child=>child.tagName==="details")),/error.*RAW_PASSIVE_ERROR/);
+const kernelRow=get("prerequisiteCapabilityList").children.find(row=>flatten(row).includes("kernel.ebpf"));
+assert.match(outsideDetails(kernelRow),/동작 확인/);assert.match(outsideDetails(kernelRow),/프로세스 실행 수집에 사용된 커널 기능/);
+assert.match(outsideDetails(kernelRow),/실동작과 사전 검사 결과가 다릅니다/);assert.doesNotMatch(outsideDetails(kernelRow),/RAW_KERNEL_DIAGNOSTIC/);
+assert.match(flatten(kernelRow.children.find(child=>child.tagName==="details")),/error.*RAW_KERNEL_DIAGNOSTIC/);
 let technical=row.children.find(child=>child.tagName==="details");technical.open=true;technical.emit("toggle");
 const oldSummary=technical.children[0];oldSummary.focus();
 get("plannedCapabilities").open=true;

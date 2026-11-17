@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,6 +86,120 @@ func TestProbeLegacyFixtureDoesNotOverclaim(t *testing.T) {
 	assertState(t, report, CgroupCapability, model.CapabilityLimited)
 	assertState(t, report, ProcessExecCapability, model.CapabilityLimited)
 	assertState(t, report, ProcessLineageCapability, model.CapabilityLimited)
+}
+
+func TestProbeConfiguredTetraOutsidePATHRemainsPassive(t *testing.T) {
+	p := configuredTetraFixture(t)
+	t.Setenv("PATH", t.TempDir())
+	marker := filepath.Join(p.Root, "unexpected-execution")
+	writeFixture(t, p.Root, p.ConfiguredTetraCommand, "#!/bin/sh\nprintf executed > '"+marker+"'\n")
+	if err := os.Chmod(p.path(p.ConfiguredTetraCommand), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := p.Probe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{TetragonCapability, EBPFCapability, ProcessExecCapability, ProcessLineageCapability} {
+		assertState(t, report, name, model.CapabilityLimited)
+		value := report.Capabilities[name]
+		if value.RuntimeState != "" || value.VerifiedAt != nil {
+			t.Fatalf("binary presence fabricated runtime evidence: %#v", value)
+		}
+	}
+	details := report.Capabilities[TetragonCapability].Details
+	if details["configured_command"] != p.ConfiguredTetraCommand || details["tetra"] != p.path(p.ConfiguredTetraCommand) {
+		t.Fatalf("configured client evidence missing: %#v", details)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("passive probe executed the configured command: %v", err)
+	}
+}
+
+func TestProbeConfiguredTetraDoesNotFallBackToPATH(t *testing.T) {
+	for _, condition := range []string{"missing", "non-executable", "directory", "relative"} {
+		t.Run(condition, func(t *testing.T) {
+			p := configuredTetraFixture(t)
+			for _, name := range []string{"tetra", "tetragon"} {
+				path := "/usr/bin/" + name
+				writeFixture(t, p.Root, path, "unrelated executable")
+				if err := os.Chmod(p.path(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", p.path("/usr/bin"))
+			if _, err := exec.LookPath("tetra"); err != nil {
+				t.Fatalf("PATH fallback fixture is not executable: %v", err)
+			}
+			switch condition {
+			case "non-executable":
+				writeFixture(t, p.Root, p.ConfiguredTetraCommand, "not executable")
+			case "directory":
+				if err := os.MkdirAll(p.path(p.ConfiguredTetraCommand), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			case "relative":
+				p.ConfiguredTetraCommand = "tetra"
+			}
+
+			report, err := p.Probe(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertState(t, report, TetragonCapability, model.CapabilityUnsupported)
+			value := report.Capabilities[TetragonCapability]
+			if value.Details["configured_command"] != p.ConfiguredTetraCommand || value.Details["tetra"] != "" || value.Details["tetragon"] != "" {
+				t.Fatalf("an unrelated PATH executable satisfied the configured client: %#v", value)
+			}
+		})
+	}
+}
+
+func TestProbeConfiguredTetraStillRequiresKernelPrerequisites(t *testing.T) {
+	for _, condition := range []string{"old-kernel", "missing-btf"} {
+		t.Run(condition, func(t *testing.T) {
+			p := configuredTetraFixture(t)
+			writeFixture(t, p.Root, p.ConfiguredTetraCommand, "executable client")
+			if err := os.Chmod(p.path(p.ConfiguredTetraCommand), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			wantReason := "minimum 4.19"
+			if condition == "old-kernel" {
+				p.Uname = func() (string, string, error) { return "4.18.0-test", "x86_64", nil }
+			} else {
+				if err := os.Remove(p.path("/sys/kernel/btf/vmlinux")); err != nil {
+					t.Fatal(err)
+				}
+				wantReason = "BTF is unavailable"
+			}
+
+			report, err := p.Probe(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertState(t, report, TetragonCapability, model.CapabilityUnsupported)
+			value := report.Capabilities[TetragonCapability]
+			if !strings.Contains(value.Reason, wantReason) || value.Details["tetra"] == "" {
+				t.Fatalf("configured client bypassed kernel prerequisites: %#v", value)
+			}
+		})
+	}
+}
+
+func configuredTetraFixture(t *testing.T) *Prober {
+	t.Helper()
+	root := t.TempDir()
+	writeFixture(t, root, "/etc/os-release", "ID=rocky\nVERSION_ID=9.6\n")
+	writeFixture(t, root, "/proc/sys/kernel/random/boot_id", "configured-boot\n")
+	writeFixture(t, root, "/boot/config-5.14.0-test", "CONFIG_BPF=y\nCONFIG_BPF_SYSCALL=y\nCONFIG_BPF_EVENTS=y\n")
+	writeFixture(t, root, "/sys/kernel/btf/vmlinux", "btf")
+	return &Prober{
+		Root:                   root,
+		ConfiguredTetraCommand: "/opt/xe-antishell/tetragon/v1.8.0/tetra",
+		Hostname:               func() (string, error) { return "configured-host", nil },
+		Uname:                  func() (string, string, error) { return "5.14.0-test", "x86_64", nil },
+	}
 }
 
 func TestProbeSurfacesMissingPlatformEvidence(t *testing.T) {

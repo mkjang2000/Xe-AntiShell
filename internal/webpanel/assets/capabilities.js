@@ -24,8 +24,8 @@ function isPrerequisite(name) {
   return name.startsWith("host.") || name.startsWith("kernel.") || name.startsWith("integrity.");
 }
 
-// Presentation follows live evidence before passive prerequisites. A passive
-// "limited" result cannot turn confirmed collection into a second warning.
+// Confirmed implemented collection takes precedence over passive diagnostics;
+// disagreements remain visible without hiding the raw technical evidence.
 function capabilityPresentation(name, value) {
   const capability = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const prerequisite = isPrerequisite(name);
@@ -60,6 +60,20 @@ function capabilityPresentation(name, value) {
   if (runtime === "inactive" && name.startsWith("collector.") && reason === "not the selected process collector") {
     return show("사용 안 함", "inactive", "현재 다른 수집 방법을 사용하고 있어 이 수집기는 선택하지 않았습니다.");
   }
+  if (runtime === "active" && capability.implementation === "implemented") {
+    const action = support === "unsupported" || support === "error" ? "실동작과 사전 검사 결과가 다릅니다. 기술 정보에서 사전 검사 진단을 확인하세요." : "";
+    if (name === "kernel.ebpf") return show("동작 확인", "active", "프로세스 실행 수집에 사용된 커널 기능의 동작을 확인했습니다.", action);
+    if (name.startsWith("collector.") || name.startsWith("observation.")) {
+      const audit = reason.includes("audit");
+      const descriptions = {
+        "collector.tetragon": "실행 정보를 실시간으로 수집하고 있습니다.",
+        "collector.audit": "서버의 감사 기록에서 실행 정보를 수집하고 있습니다. 전체 수집 규칙의 적용 범위는 확인이 필요합니다.",
+        "observation.process_exec": audit ? "실행을 관찰하며 탐지 대상 이력만 저장합니다. 현재 수집 방법은 프로세스 종료 정보를 제공하지 않습니다." : "실행을 관찰하며 탐지 대상 이력만 저장합니다.",
+        "observation.process_lineage": audit ? "실행 기록과 현재 프로세스 정보로 서비스 실행 경로를 추정합니다. 종료 정보는 제공되지 않습니다." : "어떤 서비스에서 실행됐는지 추적합니다. 일부 상위 실행 정보가 누락될 수 있습니다.",
+      };
+      return show("정상 수집", "active", descriptions[name] || "실행 정보를 수집하고 있습니다.", action, true);
+    }
+  }
   if (support === "error") {
     if (runtime === "active") return show("확인 필요", "unverified", "실행 정보는 수신 중이지만 서버 조건 검사에서 오류가 보고됐습니다.", "기술 정보에서 사전 검사 결과를 확인하세요.");
     return show("확인 오류", "error", "서버 지원 조건을 확인하는 중 오류가 발생했습니다.", "서버 설정과 로그를 확인하세요.");
@@ -76,7 +90,6 @@ function capabilityPresentation(name, value) {
   }
   if (runtime === "unverified" && (reason === "selected collector stream is not running" || reason === "source operation failed; active attachment is no longer established by this agent")) return show(prerequisite ? "확인 필요" : "수집 중단", prerequisite ? "unverified" : "error", "수집 연결이 중단되어 동작을 확인할 수 없습니다.", "수집기 연결 상태를 확인하세요.");
   if (prerequisite) {
-    if (name === "kernel.ebpf" && runtime === "active") return show("동작 확인", "active", "실시간 실행 수집에 필요한 기능의 동작을 확인했습니다.");
     if (support === "limited") return show("확인 필요", "unverified", "이 보조 정보의 일부 조건은 아직 확인하지 못했습니다. 실제 수집 여부는 위 수집 기능에서 확인하세요.");
     if (support === "supported") {
       const descriptions = {
@@ -90,16 +103,6 @@ function capabilityPresentation(name, value) {
     return result;
   }
   if (capability.implementation !== "implemented") return result;
-  if (runtime === "active") {
-    const audit = reason.includes("audit");
-    const descriptions = {
-      "collector.tetragon": "실행 정보를 실시간으로 수집하고 있습니다.",
-      "collector.audit": "서버의 감사 기록에서 실행 정보를 수집하고 있습니다. 전체 수집 규칙의 적용 범위는 확인이 필요합니다.",
-      "observation.process_exec": audit ? "실행을 관찰하며 탐지 대상 이력만 저장합니다. 현재 수집 방법은 프로세스 종료 정보를 제공하지 않습니다." : "실행을 관찰하며 탐지 대상 이력만 저장합니다.",
-      "observation.process_lineage": audit ? "실행 기록과 현재 프로세스 정보로 서비스 실행 경로를 추정합니다. 종료 정보는 제공되지 않습니다." : "어떤 서비스에서 실행됐는지 추적합니다. 일부 상위 실행 정보가 누락될 수 있습니다.",
-    };
-    return show("정상 수집", "active", descriptions[name] || "실행 정보를 수집하고 있습니다.", "", true);
-  }
   if (runtime === "unverified") {
     return show("확인 대기", "unverified", "수집 설정은 선택되었으며 실제 실행 정보가 들어오는지 확인하고 있습니다.");
   }
