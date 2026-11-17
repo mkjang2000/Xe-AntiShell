@@ -132,22 +132,31 @@ type Event struct {
 	RawJSON   json.RawMessage `json:"raw_json,omitempty" yaml:"raw_json,omitempty"`
 }
 
+// RiskFactor is a bounded rule contribution, not a probability of compromise.
+// IDs describe fixed observations and must never include command contents.
+type RiskFactor struct {
+	ID    string `json:"id" yaml:"id"`
+	Score int    `json:"score" yaml:"score"`
+}
+
 type Finding struct {
-	ID               string    `json:"finding_id" yaml:"finding_id"`
-	RuleID           string    `json:"rule_id" yaml:"rule_id"`
-	RuleVersion      string    `json:"rule_version" yaml:"rule_version"`
-	CreatedAt        time.Time `json:"created_at" yaml:"created_at"`
-	Severity         string    `json:"severity" yaml:"severity"`
-	Confidence       float64   `json:"confidence" yaml:"confidence"`
-	State            string    `json:"state" yaml:"state"`
-	Summary          string    `json:"summary" yaml:"summary"`
-	ProcessKey       string    `json:"process_key,omitempty" yaml:"process_key,omitempty"`
-	EvidenceEventIDs []string  `json:"evidence_event_ids" yaml:"evidence_event_ids"`
-	Source           string    `json:"source" yaml:"source"`
-	OriginService    string    `json:"origin_service,omitempty" yaml:"origin_service,omitempty"`
-	RiskScore        int       `json:"risk_score,omitempty" yaml:"risk_score,omitempty"`
-	ResponseDecision string    `json:"response_decision,omitempty" yaml:"response_decision,omitempty"`
-	PolicyRevision   uint64    `json:"policy_revision,omitempty" yaml:"policy_revision,omitempty"`
+	ID               string       `json:"finding_id" yaml:"finding_id"`
+	RuleID           string       `json:"rule_id" yaml:"rule_id"`
+	RuleVersion      string       `json:"rule_version" yaml:"rule_version"`
+	CreatedAt        time.Time    `json:"created_at" yaml:"created_at"`
+	Severity         string       `json:"severity" yaml:"severity"`
+	Confidence       float64      `json:"confidence" yaml:"confidence"`
+	State            string       `json:"state" yaml:"state"`
+	Summary          string       `json:"summary" yaml:"summary"`
+	ProcessKey       string       `json:"process_key,omitempty" yaml:"process_key,omitempty"`
+	EvidenceEventIDs []string     `json:"evidence_event_ids" yaml:"evidence_event_ids"`
+	Source           string       `json:"source" yaml:"source"`
+	OriginService    string       `json:"origin_service,omitempty" yaml:"origin_service,omitempty"`
+	RiskScore        int          `json:"risk_score,omitempty" yaml:"risk_score,omitempty"`
+	ResponseDecision string       `json:"response_decision,omitempty" yaml:"response_decision,omitempty"`
+	PolicyRevision   uint64       `json:"policy_revision,omitempty" yaml:"policy_revision,omitempty"`
+	RiskFactors      []RiskFactor `json:"risk_factors,omitempty" yaml:"risk_factors,omitempty"`
+	DetectionOnly    bool         `json:"detection_only,omitempty" yaml:"detection_only,omitempty"`
 }
 
 type AgentMode string

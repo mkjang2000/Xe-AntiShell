@@ -19,6 +19,15 @@ func (s *Service) Summary(ctx context.Context) (model.OperatorSummary, error) {
 		return summary, nil
 	}
 	summary.DetectionEnabled = state.enabled
+	summary.ExtendedProcessRules = s.config.Detection.ExtendedProcessRules
+	if state.policy != nil {
+		summary.ExtendedProcessRules = state.policy.Detection.ExtendedProcessRules
+	}
+	if summary.ExtendedProcessRules {
+		// Every finding from this staged profile is detection-only, including
+		// the legacy shell categories. Report the effective behavior.
+		return summary, nil
+	}
 	if state.policy == nil || !now.Before(state.policy.ExpiresAt) {
 		return summary, nil
 	}

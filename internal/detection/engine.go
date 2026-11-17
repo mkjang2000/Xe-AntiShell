@@ -16,11 +16,29 @@ type AncestorProvider interface {
 }
 
 type Engine struct {
-	webExecutables map[string]struct{}
-	webServices    map[string]struct{}
-	shells         map[string]struct{}
-	allowedPairs   map[string]struct{}
-	maxDepth       int
+	webExecutables       map[string]struct{}
+	webServices          map[string]struct{}
+	shells               map[string]struct{}
+	allowedPairs         map[string]struct{}
+	maxDepth             int
+	extendedProcessRules bool
+}
+
+// Options configures an immutable detector snapshot. ExtendedProcessRules is
+// opt-in so existing local and signed policies retain their shell-only behavior.
+type Options struct {
+	WebExecutables       []string
+	WebServices          []string
+	Shells               []string
+	AllowedPairs         []string
+	ExtendedProcessRules bool
+}
+
+// NewWithOptions preserves executable service aliases used by NewWithServices.
+func NewWithOptions(options Options) *Engine {
+	engine := NewWithServices(options.WebExecutables, options.WebServices, options.Shells, options.AllowedPairs)
+	engine.extendedProcessRules = options.ExtendedProcessRules
+	return engine
 }
 
 // New creates the built-in rule engine. allowedPairs uses the explicit
@@ -78,6 +96,9 @@ func processName(process model.Process) string {
 func (e *Engine) Evaluate(event model.Event, lineage AncestorProvider) []model.Finding {
 	if event.Type != "process.exec" {
 		return nil
+	}
+	if e.extendedProcessRules {
+		return e.evaluateExtended(event, lineage)
 	}
 	if _, shell := e.shells[processName(event.Process)]; !shell {
 		return nil

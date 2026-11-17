@@ -23,12 +23,15 @@ type Policy struct {
 	Monitoring    MonitoringPolicy `json:"monitoring"`
 }
 
+// DetectionPolicy omits a false ExtendedProcessRules value to preserve the signed
+// bytes of policies issued before extended process rules were introduced.
 type DetectionPolicy struct {
-	Enabled        bool     `json:"enabled"`
-	WebExecutables []string `json:"web_executables"`
-	WebServices    []string `json:"web_services"`
-	Shells         []string `json:"shells"`
-	AllowedPairs   []string `json:"allowed_pairs"`
+	Enabled              bool     `json:"enabled"`
+	ExtendedProcessRules bool     `json:"extended_process_rules,omitempty" yaml:"extended_process_rules,omitempty"`
+	WebExecutables       []string `json:"web_executables"`
+	WebServices          []string `json:"web_services"`
+	Shells               []string `json:"shells"`
+	AllowedPairs         []string `json:"allowed_pairs"`
 }
 
 type ResponsePolicy struct {

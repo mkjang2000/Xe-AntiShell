@@ -10,6 +10,82 @@ func TestOperatorResourcesUseCompactAccessibleTablesAndHonestUnknowns(t *testing
 	runBrowserBehavior(t, operatorResourcesBehaviorTest)
 }
 
+func TestExtendedFindingsExplainObservedFactorsAndDetectionOnlyResponse(t *testing.T) {
+	runBrowserBehavior(t, extendedFindingBehaviorTest)
+}
+
+const extendedFindingBehaviorTest = `
+const titles = [
+ ["web-descendant-download-tool","웹 서비스에서 다운로드 도구 실행"],
+ ["web-descendant-recon-tool","웹 서비스에서 정보 확인 도구 실행"],
+ ["web-descendant-connection-tool","웹 서비스에서 연결 도구 실행"],
+ ["web-descendant-inline-interpreter","웹 서비스에서 직접 코드 실행 요청"],
+ ["web-descendant-temporary-executable","웹 서비스에서 임시 경로의 실행 파일 실행"],
+];
+context.extended={
+ finding_id:"extended-observation",state:"open",severity:"high",confidence:.75,risk_score:100,
+ created_at:"2026-11-17T06:00:00Z",origin_service:"nginx.service",summary:"<script>alert(1)</script>",
+ response_decision:"sigterm_sent",detection_only:true,evidence_event_ids:["extended-evidence"],
+ risk_factors:[{id:"web_origin",score:25},{id:"shell_execution",score:60},{id:"root_identity",score:10},{id:"temporary_working_directory",score:5}],
+};
+for(const [rule,title] of titles){
+ context.extended.rule_id=rule;
+ const card=vm.runInContext("findingCard(extended)",context);
+ const basic=card.children.filter(child=>child.tagName!=="DETAILS").map(flatten).join(" ");
+ assert.match(basic,new RegExp(title));
+ assert.match(basic,/확장 탐지 전용/);
+ assert.doesNotMatch(basic,/종료 신호 전송|sigterm_sent|web-descendant|<script>|100%|악성 확정/);
+ const details=card.children.find(child=>child.tagName==="DETAILS");
+ assert.equal(details.open,false);
+ const detailText=flatten(details);
+ assert.match(detailText,/규칙 기여 점수 합계\s*100\/100/);
+ assert.match(detailText,/기여 점수의 합계\(최대 100점\)/);
+ assert.match(detailText,/악성 확률이나 실제 공격 확정을 뜻하지 않습니다/);
+ assert.match(detailText,/자동 종료 대상에 포함되지 않습니다/);
+ assert.match(detailText,/\+25점.*웹 서비스와 연결된 실행 경로/);
+ assert.match(detailText,/\+60점.*셸 프로그램 실행/);
+ assert.match(detailText,/\+10점.*관리자 권한/);
+ assert.match(detailText,/\+5점.*작업 경로가 임시 경로/);
+ assert.doesNotMatch(detailText,/web_origin|shell_execution|root_identity|temporary_working_directory/);
+ assert.match(detailText,/<script>alert\(1\)<\/script>/,"raw evidence remains plain text in collapsed details");
+}
+for(const [id,explanation] of [
+ ["download_tool",/다운로드 성공 여부는 확인되지 않았습니다/],
+ ["recon_tool",/시스템·계정·네트워크 정보 확인용 도구/],
+ ["connection_tool",/실제 연결 여부는 확인되지 않았습니다/],
+ ["inline_interpreter",/코드 내용은 분석하지 않았습니다/],
+ ["temporary_executable",/임시 또는 메모리 파일 경로/],
+]){
+ context.factor={id,score:20};
+ assert.match(vm.runInContext("findingRiskFactorText(factor)",context),explanation);
+}
+for(const id of ["future-factor","constructor","__proto__","<img src=x onerror=alert(1)>"]){
+ context.extended.risk_factors=[{id,score:12,reason:"<script>untrusted reason</script>"}];
+ const card=vm.runInContext("findingCard(extended)",context);
+ const detailText=flatten(card.children.find(child=>child.tagName==="DETAILS"));
+ assert.match(detailText,/\+12점.*추가 관찰 근거/);
+ assert.doesNotMatch(detailText,/future-factor|constructor|__proto__|<img|untrusted reason/);
+}
+context.extended.risk_factors=Array.from({length:12},(_,i)=>({id:"root_identity",score:i+1}));
+const bounded=vm.runInContext("recordsRiskFields(extended)",context);
+assert.equal(bounded.length,9,"render at most eight factors plus the score explanation");
+assert.match(bounded[8][1],/^\+8점/);
+context.extended.risk_factors=[null,{id:"download_tool",score:-2},{id:"connection_tool",score:"<img>"}];
+const malformed=vm.runInContext("recordsRiskFields(extended)",context);
+assert.match(malformed[1][1],/점수 미확인.*추가 관찰 근거/);
+assert.match(malformed[2][1],/^점수 미확인/);assert.doesNotMatch(malformed[3][1],/<img>/);
+for(const factors of [undefined,null,[]]){
+ context.extended.risk_factors=factors;
+ const legacy=vm.runInContext("recordsRiskFields(extended)",context);
+ assert.equal(legacy.length,1);assert.equal(legacy[0][0],"규칙 점수");
+ assert.match(legacy[0][1],/규칙 등급을 점수로 표시한 값이며 악성 확률이 아닙니다/);
+}
+assert.equal(vm.runInContext("operatorLabel('response','detection_only')",context),"확장 탐지 전용");
+context.extended.detection_only=false;context.extended.response_decision="detection_only";
+const decisionOnly=vm.runInContext("findingCard(extended)",context);
+assert.match(outsideDetails(decisionOnly),/확장 탐지 전용/);
+`
+
 const operatorRecordsBehaviorTest = `
 (async () => {
   context.finding = {

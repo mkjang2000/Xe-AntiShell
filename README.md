@@ -26,7 +26,7 @@ sudo ./install.sh --build --enable-web
 
 # Or build once and install the resulting RPM on another compatible host.
 make rpm
-sudo ./install.sh --rpm ./dist/rpm/xe-antishell-0.1.0-14.el9.x86_64.rpm --enable-web
+sudo ./install.sh --rpm ./dist/rpm/xe-antishell-0.1.0-15.el9.x86_64.rpm --enable-web
 ```
 
 The RPM filename depends on the build host's distribution and architecture.
@@ -110,6 +110,60 @@ only detection-relevant executables and `only_detection_origins` can further
 limit durable evidence to configured web service/executable ancestry. Kernel
 audit and the dispatcher still observe the configured syscall stream, so audit
 loss, backlog, plugin warnings, and host overhead must be monitored.
+
+## Extended web-origin process detection
+
+The default rule detects shells descended from configured web origins. An
+optional detection-only profile also reports download tools (`curl`, `wget`),
+system-diagnostic tools (`id`, `whoami`, `uname`, `hostname`, `ps`), connection
+utilities (`nc`, `ncat`, `socat`), supported inline interpreter options, and
+executables under temporary or memory-backed paths. These are reviewable
+process observations; they do not establish a successful transfer, an actual
+connection, file modification or a confirmed webshell.
+
+Use [the extended collection example](configs/examples/agent-webshell-detection.yaml)
+after adjusting exact web-service names and collector paths. The option
+`detection.extended_process_rules` defaults to `false`. Enabling it requires
+**both** audit and Tetragon `include_executables` lists to be empty, because a
+shell-only filter would hide non-shell observations. `only_detection_origins`
+can still limit retained evidence to configured web origins. Broader collection
+increases storage and central delivery volume; review it per service.
+
+For a managed agent, the verified central policy determines this option. Update
+the agent/central software before issuing a policy with the new field. An old
+signed policy keeps the previous behavior; it cannot silently enable expansion.
+An incompatible collector scope rejects the new policy and preserves the last
+approved detector. Expiry retains the approved detection profile with response
+disabled.
+
+Extended findings contain fixed observation reasons and additive rule scores,
+with the sum capped at 100. Scores are not probabilities of compromise, and
+lineage confidence is separate. The panel shows the effective profile, Korean
+reasons and detection-only status. **All findings from the extended profile,
+including shell rules, are excluded from automatic termination**, even with an
+enforce policy and local termination opt-in.
+
+Inline interpreter classification requires a complete, exact argv and an
+explicit supported option before any script/module boundary. The Tetragon
+adapter omits flattened arguments, so it cannot provide this signal. Incomplete
+or fragmented audit argv is marked unknown and cannot prove an inline-code
+invocation. Ordinary Python/Node workers and tools outside configured web
+origins do not trigger these extra process rules. Legacy shell exceptions only
+suppress the matching shell behavior; they do not exempt a temporary executable
+or a distinct non-shell category.
+
+Run an isolated replay check without installing a package or changing services:
+
+```bash
+make static test-detection
+```
+
+The checker starts its own temporary agent, socket and database, replays fixed
+positive and legitimate-operation metadata, verifies findings and scores, then
+removes its resources. It never executes the depicted commands or downloads.
+This verifies the executable/persistence path, not real attack detection rates
+or live kernel collection. File/network/credential observation and multi-event
+attack-chain correlation remain future work.
 
 ## Commands
 
@@ -269,7 +323,7 @@ switching and validation boundaries.
 ## Development validation
 
 ```bash
-make verify        # source checks, formatting, scripts/UI, vet, race tests, static binaries
+make verify        # source/scripts/UI, vet, race tests, static binaries, isolated replay
 make check-source  # review source candidates without printing secret values
 make rpm           # create one local RPM under dist/rpm; no host installation
 ```

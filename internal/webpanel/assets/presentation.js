@@ -9,7 +9,7 @@ function operatorLabel(kind, value) {
     event: {"process.exec": "프로그램 실행", "process.exit": "프로그램 종료"},
     completeness: {complete: "정보 확인", partial: "일부 정보", incomplete: "정보 부족"},
     lineage: {verified: "경로 확인", inferred: "일부 추정", unknown: "경로 미확인"},
-    response: {observe: "탐지 전용", would_block: "모의 대응 대상", below_threshold: "대응 기준 미달", insufficient_capability: "대응 요건 부족", terminate_pending: "종료 요청 준비", sigterm_sent: "종료 신호 전송", refused: "안전 조건 미충족", not_repeated: "재실행 생략"},
+    response: {observe: "탐지 전용", detection_only: "확장 탐지 전용", would_block: "모의 대응 대상", below_threshold: "대응 기준 미달", insufficient_capability: "대응 요건 부족", terminate_pending: "종료 요청 준비", sigterm_sent: "종료 신호 전송", refused: "안전 조건 미충족", not_repeated: "재실행 생략"},
     health: {healthy: "정상", starting: "확인 중", degraded: "일부 확인 필요", error: "오류"},
     collector: {"tetragon-json": "실시간 실행 수집", "audit-dispatcher": "기본 실행 수집", "replay-jsonl": "점검 자료 재생", replay: "점검 자료 재생"},
     policy: {applied: "적용됨", rejected: "적용 확인 필요", stale: "갱신 필요", local: "서버 설정 사용"},
@@ -35,7 +35,33 @@ function isSelfTestFinding(finding) {
 }
 
 function findingTitle(finding) {
-  if (finding.rule_id === "web-descendant-root-shell") return "웹 서비스에서 관리자 권한 셸 실행";
-  if (finding.rule_id === "web-descendant-shell") return "웹 서비스에서 셸 실행";
-  return "의심 행위 탐지";
+  return findingRuleText(finding).title;
+}
+
+function findingRuleText(finding) {
+  const rules = {
+    "web-descendant-root-shell": {title: "웹 서비스에서 관리자 권한 셸 실행", description: "서비스가 운영체제 명령을 실행했습니다. 정상 배포 작업인지 확인하세요."},
+    "web-descendant-shell": {title: "웹 서비스에서 셸 실행", description: "서비스가 운영체제 명령을 실행했습니다. 정상 배포 작업인지 확인하세요."},
+    "web-descendant-download-tool": {title: "웹 서비스에서 다운로드 도구 실행", description: "다운로드 기능이 있는 도구가 실행됐습니다. 실제 다운로드 여부와 정상 운영 작업인지는 추가 확인이 필요합니다."},
+    "web-descendant-recon-tool": {title: "웹 서비스에서 정보 확인 도구 실행", description: "시스템·계정·네트워크 정보 확인용 도구가 실행됐습니다. 정상 운영 작업인지 확인하세요."},
+    "web-descendant-connection-tool": {title: "웹 서비스에서 연결 도구 실행", description: "연결 기능이 있는 도구가 실행됐습니다. 실제 연결 여부와 실행 목적은 추가 확인이 필요합니다."},
+    "web-descendant-inline-interpreter": {title: "웹 서비스에서 직접 코드 실행 요청", description: "직접 코드 실행 옵션을 지정한 인터프리터가 실행됐습니다. 코드 내용과 실행 성공 여부는 이 기록으로 확인할 수 없습니다."},
+    "web-descendant-temporary-executable": {title: "웹 서비스에서 임시 경로의 실행 파일 실행", description: "임시 또는 메모리 파일 경로의 프로그램이 실행됐습니다. 파일의 출처와 정상 운영 작업인지는 추가 확인이 필요합니다."},
+  };
+  return Object.prototype.hasOwnProperty.call(rules, finding.rule_id) ? rules[finding.rule_id] : {title: "의심 행위 탐지", description: "탐지 조건에 해당하는 실행 기록입니다. 상세 기록을 확인하세요."};
+}
+
+function findingRiskFactorText(factor) {
+  const reasons = {
+    web_origin: "웹 서비스와 연결된 실행 경로가 관찰됐습니다.",
+    shell_execution: "셸 프로그램 실행이 관찰됐습니다.",
+    download_tool: "다운로드 기능이 있는 도구 실행이 관찰됐습니다. 다운로드 성공 여부는 확인되지 않았습니다.",
+    recon_tool: "시스템·계정·네트워크 정보 확인용 도구 실행이 관찰됐습니다.",
+    connection_tool: "연결 기능이 있는 도구 실행이 관찰됐습니다. 실제 연결 여부는 확인되지 않았습니다.",
+    inline_interpreter: "직접 코드 실행 옵션을 지정한 인터프리터 호출이 관찰됐습니다. 코드 내용은 분석하지 않았습니다.",
+    temporary_executable: "임시 또는 메모리 파일 경로의 실행 파일 실행이 관찰됐습니다.",
+    root_identity: "관리자 권한(실행 권한 사용자 번호 0)으로 실행됐습니다.",
+    temporary_working_directory: "프로세스의 작업 경로가 임시 경로로 확인됐습니다.",
+  };
+  return factor && Object.prototype.hasOwnProperty.call(reasons, factor.id) ? reasons[factor.id] : "추가 관찰 근거";
 }

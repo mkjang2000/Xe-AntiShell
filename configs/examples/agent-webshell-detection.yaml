@@ -1,0 +1,68 @@
+# Detection-only example for all executions attributed to configured web origins.
+# Install and validate the external Tetragon collector first. Adjust the binary,
+# socket path and exact service names using the target host inventory.
+version: 1
+
+agent:
+  id: ""
+  socket_path: /run/xe-antishell/sentineld.sock
+  database_path: /var/lib/xe-antishell/sentineld.db
+
+collector:
+  mode: tetragon
+  tetragon:
+    command: /usr/local/bin/tetra
+    args:
+      - --server-address
+      - unix:///run/tetragon/tetragon.sock
+      - getevents
+      - -o
+      - json
+    # Keep the full context stream in bounded memory and retain all executables
+    # from configured web origins, including non-shell extended-rule candidates.
+    include_executables: []
+    only_detection_origins: true
+  audit:
+    # Inactive in Tetragon mode. Empty filters preserve extended-rule coverage
+    # if the collector is changed; review upstream audit rules before switching.
+    input_path: ""
+    include_executables: []
+    only_detection_origins: true
+  replay:
+    path: ""
+
+limits:
+  max_event_bytes: 262144
+  max_raw_json_bytes: 131072
+  max_argv: 128
+  max_argument_bytes: 4096
+  queue_size: 256
+  query_default: 100
+  query_maximum: 1000
+  retention_days: 7
+
+privacy:
+  store_raw_events: false
+  redact_argv: true
+  sensitive_argument_names:
+    - password
+    - passwd
+    - token
+    - access-token
+    - api-key
+    - apikey
+    - secret
+    - client-secret
+    - authorization
+
+detection:
+  enabled: true
+  extended_process_rules: true
+  web_executables: [httpd, apache2, nginx, php-fpm, gunicorn, uwsgi]
+  # Replace/add exact service names. Generic node/python names are not web origins.
+  web_services: [example-web.service, nginx.service]
+  shells: [sh, bash, dash, zsh, ksh, ash]
+  allowed_pairs: []
+
+response:
+  allow_terminate: false

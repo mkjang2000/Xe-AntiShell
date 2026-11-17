@@ -28,9 +28,12 @@ Xe-AntiShell/
 │   ├── agent/                     # Pipeline, runtime evidence, Tetragon context/filtering
 │   ├── capability/                # Host/kernel feature discovery
 │   ├── collector/                 # Tetragon, audit, and replay adapters
+│   │   └── audit_argv.go          # Bounded count/index validation for exact exec arguments
 │   ├── central/                   # Separate central SQLite store, mTLS, policy/grant APIs
 │   ├── config/                    # Strict configuration loading and validation
-│   ├── detection/                 # Local web-descendant-shell rules
+│   ├── detection/                 # Web-origin attribution and opt-in process behavior rules
+│   │   ├── classifiers.go         # Exact process/argv/path observations without command inspection
+│   │   └── extended.go            # One finding per exec, bounded risk factors, detection-only marker
 │   ├── identity/                  # Event and boot-scoped process identifiers
 │   ├── hostmetrics/               # Bounded procfs/sysfs resource and counter-delta sampler
 │   ├── lineage/                   # Bounded process ancestry and source-context tracking
@@ -45,6 +48,7 @@ Xe-AntiShell/
 │       └── assets/                # Shared Korean labels, operator overview, feature states, history/resources/themes
 ├── configs/
 │   ├── examples/                  # Shareable collector/policy examples without host inventory
+│   │   └── agent-webshell-detection.yaml # Opt-in full web-origin process collection
 │   └── sentineld.yaml             # Example production configuration
 ├── packaging/
 │   ├── install_test.sh            # Installer command-mock checks without host mutations
@@ -52,12 +56,13 @@ Xe-AntiShell/
 │   ├── rpm/                       # RPM package skeleton
 │   ├── systemd/                   # Generic agent/web/central units
 │   └── tetragon/                  # Reviewed standalone Tetragon/agent overrides
-├── testdata/events/               # Controlled normalized event fixtures
+├── testdata/events/               # Controlled events and positive/legitimate process scenarios
 ├── third_party/licenses/          # Upstream Go/runtime license texts for redistribution
 ├── scripts/
 │   ├── build-rpm.sh               # Checked source selection and isolated local RPM build
 │   ├── build_rpm_test.sh          # Mocked tools and real source archive checks
 │   ├── check-source.py            # Candidate source privacy and documentation checks
+│   ├── check-detection.py         # Temporary agent/CLI replay check without live changes
 │   └── check_source_test.py       # Isolated Git/archive hygiene regression tests
 ├── devdocs/plans/
 │   ├── git-readiness.md           # Installer, source privacy, Git and validation scope
@@ -70,7 +75,8 @@ Xe-AntiShell/
 │   ├── security-policy-and-monitoring.md # Managed policy, response, removal, metrics scope
 │   ├── standalone-mvp.md          # Detailed MVP design and validation plan
 │   ├── tetragon-runtime-rollout.md # Runtime status and eBPF rollout design
-│   └── web-monitor-panel.md       # Local read-only web panel design
+│   ├── web-monitor-panel.md       # Local read-only web panel design
+│   └── webshell-process-detection.md # Opt-in process rules, privacy and staged validation
 ├── devdocs/analysis/
 │   └── managed-v1-operations.md   # Generic enrollment, policy, removal and trust procedures
 ├── devdocs/reviews/
@@ -181,6 +187,13 @@ auditd dispatcher
   full stream context is bounded in memory while only configured shell/origin
   candidates and their ancestors are persisted. Flattened Tetragon argv remains
   omitted because exact argument boundaries are not preserved by that source.
+- Extended process rules require explicit local/signed-policy opt-in and empty
+  executable filters. Web-origin retention remains available. Additive risk
+  factors are observations, not maliciousness probabilities; every finding in
+  this profile is detection-only, independently enforced by the response layer.
+- Audit exact argv requires validated argument counts and positions; incomplete
+  records do not become inline-code evidence. File/network observations are
+  not inferred from process tool execution.
 - The local Unix HTTP/JSON API is separate from the central mTLS protocol.
   Monitoring reads are available to the local socket group; enrollment/removal
   mutations additionally require kernel-verified root peer credentials.

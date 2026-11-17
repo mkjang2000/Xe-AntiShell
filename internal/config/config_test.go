@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -122,5 +123,63 @@ func TestEmptyFileUsesDefaults(t *testing.T) {
 	}
 	if cfg.Version != CurrentVersion || cfg.Collector.Mode != CollectorAuto {
 		t.Fatalf("unexpected defaults: %#v", cfg)
+	}
+	if cfg.Detection.ExtendedProcessRules {
+		t.Fatal("extended process rules must remain opt-in")
+	}
+}
+
+func TestExtendedProcessRulesRequireUnfilteredExecutables(t *testing.T) {
+	for _, mode := range []CollectorMode{CollectorAuto, CollectorTetragon, CollectorAudit, CollectorReplay, CollectorDisabled} {
+		t.Run(string(mode), func(t *testing.T) {
+			cfg := Default()
+			cfg.Collector.Mode = mode
+			cfg.Collector.Replay.Path = "/tmp/events.ndjson"
+			cfg.Detection.ExtendedProcessRules = true
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("unfiltered extended rules rejected: %v", err)
+			}
+			for _, source := range []string{"audit", "tetragon"} {
+				t.Run(source, func(t *testing.T) {
+					filtered := cfg
+					if source == "audit" {
+						filtered.Collector.Audit.IncludeExecutables = []string{"sh"}
+					} else {
+						filtered.Collector.Tetragon.IncludeExecutables = []string{"sh"}
+					}
+					if err := filtered.Validate(); err == nil || !strings.Contains(err.Error(), "collector."+source+".include_executables") {
+						t.Fatalf("expected executable coverage error, got %v", err)
+					}
+					filtered.Detection.ExtendedProcessRules = false
+					if err := filtered.Validate(); err != nil {
+						t.Fatalf("legacy filtered configuration rejected: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestExampleConfigurations(t *testing.T) {
+	for _, test := range []struct {
+		path         string
+		wantExtended bool
+	}{
+		{"../../configs/sentineld.yaml", false},
+		{"../../configs/examples/agent-tetragon.yaml", false},
+		{"../../configs/examples/agent-webshell-detection.yaml", true},
+	} {
+		t.Run(filepath.Base(test.path), func(t *testing.T) {
+			cfg, err := Load(test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Detection.ExtendedProcessRules != test.wantExtended {
+				t.Fatalf("extended process rules = %t, want %t", cfg.Detection.ExtendedProcessRules, test.wantExtended)
+			}
+			if cfg.Response.AllowTerminate {
+				t.Fatal("shared configuration must not opt in to automatic termination")
+			}
+		})
 	}
 }

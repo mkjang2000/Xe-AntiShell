@@ -50,6 +50,7 @@ privacy:
 
 detection:
   enabled: true
+  extended_process_rules: false
   web_executables:
     - httpd
     - apache2

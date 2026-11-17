@@ -89,11 +89,12 @@ type PrivacyConfig struct {
 }
 
 type DetectionConfig struct {
-	Enabled        bool     `json:"enabled" yaml:"enabled"`
-	WebExecutables []string `json:"web_executables" yaml:"web_executables"`
-	WebServices    []string `json:"web_services,omitempty" yaml:"web_services,omitempty"`
-	Shells         []string `json:"shells" yaml:"shells"`
-	AllowedPairs   []string `json:"allowed_pairs,omitempty" yaml:"allowed_pairs,omitempty"`
+	Enabled              bool     `json:"enabled" yaml:"enabled"`
+	ExtendedProcessRules bool     `json:"extended_process_rules,omitempty" yaml:"extended_process_rules,omitempty"`
+	WebExecutables       []string `json:"web_executables" yaml:"web_executables"`
+	WebServices          []string `json:"web_services,omitempty" yaml:"web_services,omitempty"`
+	Shells               []string `json:"shells" yaml:"shells"`
+	AllowedPairs         []string `json:"allowed_pairs,omitempty" yaml:"allowed_pairs,omitempty"`
 }
 
 func Default() Config {
@@ -217,6 +218,16 @@ func (c Config) Validate() error {
 	}
 	if err := validateExecutableBasenames("collector.tetragon.include_executables", c.Collector.Tetragon.IncludeExecutables); err != nil {
 		return err
+	}
+	// Check both sources so auto mode and later collector switches cannot silently
+	// narrow the executable coverage required by the extended process rules.
+	if c.Detection.ExtendedProcessRules {
+		if len(c.Collector.Audit.IncludeExecutables) != 0 {
+			return errors.New("detection.extended_process_rules requires empty collector.audit.include_executables")
+		}
+		if len(c.Collector.Tetragon.IncludeExecutables) != 0 {
+			return errors.New("detection.extended_process_rules requires empty collector.tetragon.include_executables")
+		}
 	}
 	if c.Collector.Tetragon.OnlyDetectionOrigins && !c.Detection.Enabled {
 		return errors.New("collector.tetragon.only_detection_origins requires detection.enabled")

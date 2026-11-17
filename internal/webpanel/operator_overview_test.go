@@ -42,3 +42,32 @@ vm.runInContext("renderRecentFindings(recent)",context);
 assert.equal(get("recentFindings").children[0].children[1].focused,true,"refresh preserves review focus");
 `)
 }
+
+func TestOverviewReflectsActiveExtendedDetectionWithoutClaimingAutomaticResponse(t *testing.T) {
+	runBrowserBehavior(t, `
+context.summary={detection_enabled:true,extended_process_rules:true,response_mode:"enforce",response_action:"terminate",recent_findings:[]};
+vm.runInContext("renderOperatorOverview({status:{health:'healthy'},summary})",context);
+assert.equal(get("responseValue").textContent,"확장 탐지 전용");
+assert.match(get("responseNote").textContent,/셸과 도구 실행을 확장 탐지/);
+assert.match(get("responseNote").textContent,/자동 종료하지 않습니다/);
+for(const mode of ["observe","would_block","enforce"]){
+ context.summary.response_mode=mode;
+ assert.equal(vm.runInContext("effectiveResponse(summary).label",context),"확장 탐지 전용");
+}
+context.summary.detection_enabled=false;
+vm.runInContext("renderOperatorOverview({status:{health:'healthy'},summary})",context);
+assert.equal(get("responseValue").textContent,"탐지 중지");
+assert.doesNotMatch(get("responseNote").textContent,/확장 탐지|사용 중/);
+context.summary.detection_enabled=true;context.summary.extended_process_rules=false;
+vm.runInContext("renderOperatorOverview({status:{health:'healthy'},summary})",context);
+assert.equal(get("responseValue").textContent,"조건부 자동 종료");
+assert.match(get("responseNote").textContent,/기본 셸 탐지/);
+delete context.summary.extended_process_rules;
+assert.match(vm.runInContext("effectiveResponse(summary).note",context),/기본 셸 탐지/);
+context.recent=[{finding_id:"extended-recent",rule_id:"web-descendant-download-tool",detection_only:true,response_decision:"sigterm_sent",severity:"high"}];
+vm.runInContext("renderRecentFindings(recent)",context);
+assert.match(flatten(get("recentFindings")),/웹 서비스에서 다운로드 도구 실행/);
+assert.match(flatten(get("recentFindings")),/확장 탐지 전용/);
+assert.doesNotMatch(flatten(get("recentFindings")),/종료 신호 전송/);
+`)
+}

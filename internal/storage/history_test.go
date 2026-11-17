@@ -198,6 +198,51 @@ func TestFindingHistorySearchMatchesOperatorTitlesAndProcessPaths(t *testing.T) 
 	}
 }
 
+func TestFindingHistorySearchMatchesExtendedTitlesAndPreservesRiskMetadata(t *testing.T) {
+	store, _ := openTestStore(t)
+	ctx := context.Background()
+	when := time.Unix(1700000000, 0).UTC()
+	cases := []struct {
+		rule, title string
+	}{
+		{"web-descendant-download-tool", "웹 서비스에서 다운로드 도구 실행"},
+		{"web-descendant-recon-tool", "웹 서비스에서 정보 확인 도구 실행"},
+		{"web-descendant-connection-tool", "웹 서비스에서 연결 도구 실행"},
+		{"web-descendant-inline-interpreter", "웹 서비스에서 직접 코드 실행 요청"},
+		{"web-descendant-temporary-executable", "웹 서비스에서 임시 경로의 실행 파일 실행"},
+	}
+	wantFactors := []model.RiskFactor{{ID: "web_origin", Score: 25}, {ID: "download_tool", Score: 35}}
+	for index, test := range cases {
+		event := testEvent(fmt.Sprintf("extended-search-%d", index), uint64(index+1), when)
+		event.Process.PID = 1400 + index
+		finding := managedTestFinding(event)
+		finding.RuleID, finding.Summary = test.rule, "English observation only"
+		finding.RiskScore, finding.DetectionOnly, finding.RiskFactors = 60, true, wantFactors
+		if err := store.PersistObservation(ctx, event, []model.Finding{finding}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index, test := range cases {
+		t.Run(test.rule, func(t *testing.T) {
+			page, err := store.History(ctx, model.HistoryQuery{Kind: "findings", Search: test.title, Limit: 10})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantID := fmt.Sprintf("finding-extended-search-%d", index)
+			if got := historyIDs(t, "findings", page); !reflect.DeepEqual(got, []string{wantID}) || page.Total != 1 {
+				t.Fatalf("title %q: rows=%v total=%d want=%s", test.title, got, page.Total, wantID)
+			}
+			var findings []model.Finding
+			if err := json.Unmarshal(page.Items, &findings); err != nil {
+				t.Fatal(err)
+			}
+			if !findings[0].DetectionOnly || findings[0].RiskScore != 60 || !reflect.DeepEqual(findings[0].RiskFactors, wantFactors) {
+				t.Fatalf("history lost extended detection metadata: %+v", findings[0])
+			}
+		})
+	}
+}
+
 func TestHistoryRejectsInvalidBoundsAndCursorFilterChanges(t *testing.T) {
 	store := historyFixture(t)
 	for _, query := range []model.HistoryQuery{

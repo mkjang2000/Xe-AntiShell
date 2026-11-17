@@ -1,0 +1,573 @@
+{
+  "format_version": 1,
+  "description": "Synthetic process observations only. Program paths and argv are metadata and must never be executed.",
+  "scenarios": [
+    {
+      "name": "web downloader without shell",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-01",
+        "event_type": "process.exec",
+        "source": "tetragon",
+        "completeness": "partial",
+        "process": {
+          "pid": 31001,
+          "ppid": 0,
+          "exe": "/usr/bin/curl",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": {
+          "rule_id": "web-descendant-download-tool",
+          "rule_version": "0.2.0",
+          "risk_score": 60,
+          "risk_factors": [
+            {
+              "id": "web_origin",
+              "score": 25
+            },
+            {
+              "id": "download_tool",
+              "score": 35
+            }
+          ],
+          "detection_only": true,
+          "response_decision": "detection_only"
+        }
+      }
+    },
+    {
+      "name": "web reconnaissance without shell",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-02",
+        "event_type": "process.exec",
+        "source": "tetragon",
+        "completeness": "partial",
+        "process": {
+          "pid": 31002,
+          "ppid": 0,
+          "exe": "/usr/bin/id",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": {
+          "rule_id": "web-descendant-recon-tool",
+          "rule_version": "0.2.0",
+          "risk_score": 45,
+          "risk_factors": [
+            {
+              "id": "web_origin",
+              "score": 25
+            },
+            {
+              "id": "recon_tool",
+              "score": 20
+            }
+          ],
+          "detection_only": true,
+          "response_decision": "detection_only"
+        }
+      }
+    },
+    {
+      "name": "web connection utility",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-03",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31003,
+          "ppid": 0,
+          "exe": "/usr/bin/socat",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": {
+          "rule_id": "web-descendant-connection-tool",
+          "rule_version": "0.2.0",
+          "risk_score": 70,
+          "risk_factors": [
+            {
+              "id": "web_origin",
+              "score": 25
+            },
+            {
+              "id": "connection_tool",
+              "score": 45
+            }
+          ],
+          "detection_only": true,
+          "response_decision": "detection_only"
+        }
+      }
+    },
+    {
+      "name": "web temporary executable",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-04",
+        "event_type": "process.exec",
+        "source": "tetragon",
+        "completeness": "partial",
+        "process": {
+          "pid": 31004,
+          "ppid": 0,
+          "exe": "/tmp/uploaded-helper",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": {
+          "rule_id": "web-descendant-temporary-executable",
+          "rule_version": "0.2.0",
+          "risk_score": 65,
+          "risk_factors": [
+            {
+              "id": "web_origin",
+              "score": 25
+            },
+            {
+              "id": "temporary_executable",
+              "score": 40
+            }
+          ],
+          "detection_only": true,
+          "response_decision": "detection_only"
+        }
+      }
+    },
+    {
+      "name": "web inline interpreter",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-05",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31005,
+          "ppid": 0,
+          "exe": "/usr/bin/python3",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "python3",
+            "-c",
+            "pass"
+          ]
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": {
+          "rule_id": "web-descendant-inline-interpreter",
+          "rule_version": "0.2.0",
+          "risk_score": 70,
+          "risk_factors": [
+            {
+              "id": "web_origin",
+              "score": 25
+            },
+            {
+              "id": "inline_interpreter",
+              "score": 45
+            }
+          ],
+          "detection_only": true,
+          "response_decision": "detection_only"
+        }
+      }
+    },
+    {
+      "name": "existing shell category",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-06",
+        "event_type": "process.exec",
+        "source": "tetragon",
+        "completeness": "partial",
+        "process": {
+          "pid": 31006,
+          "ppid": 0,
+          "exe": "/bin/sh",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": {
+          "rule_id": "web-descendant-shell",
+          "rule_version": "0.2.0",
+          "risk_score": 85,
+          "risk_factors": [
+            {
+              "id": "web_origin",
+              "score": 25
+            },
+            {
+              "id": "shell_execution",
+              "score": 60
+            }
+          ],
+          "detection_only": true,
+          "response_decision": "detection_only"
+        }
+      }
+    },
+    {
+      "name": "normal application worker",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-07",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31007,
+          "ppid": 0,
+          "exe": "/usr/bin/python3",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "python3",
+            "worker.py",
+            "-c",
+            "argument"
+          ]
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": null
+      }
+    },
+    {
+      "name": "normal node worker",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-08",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31008,
+          "ppid": 0,
+          "exe": "/usr/bin/node",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "node",
+            "worker.js"
+          ]
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": null
+      }
+    },
+    {
+      "name": "unrelated admin download",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-09",
+        "event_type": "process.exec",
+        "source": "tetragon",
+        "completeness": "partial",
+        "process": {
+          "pid": 31009,
+          "ppid": 0,
+          "exe": "/usr/bin/curl",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "sshd.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": false,
+        "finding": null
+      }
+    },
+    {
+      "name": "unrelated deployment shell",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-10",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31010,
+          "ppid": 0,
+          "exe": "/bin/sh",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "deploy.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": false,
+        "finding": null
+      }
+    },
+    {
+      "name": "unrelated temporary execution",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-11",
+        "event_type": "process.exec",
+        "source": "tetragon",
+        "completeness": "partial",
+        "process": {
+          "pid": 31011,
+          "ppid": 0,
+          "exe": "/tmp/helper",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "deploy.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": false,
+        "finding": null
+      }
+    },
+    {
+      "name": "temporary directory boundary",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-12",
+        "event_type": "process.exec",
+        "source": "tetragon",
+        "completeness": "partial",
+        "process": {
+          "pid": 31012,
+          "ppid": 0,
+          "exe": "/tmp-backup/helper",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": null
+      }
+    },
+    {
+      "name": "tool name boundary",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-13",
+        "event_type": "process.exec",
+        "source": "tetragon",
+        "completeness": "partial",
+        "process": {
+          "pid": 31013,
+          "ppid": 0,
+          "exe": "/usr/bin/curl-helper",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false
+        }
+      },
+      "expected": {
+        "retained": true,
+        "finding": null
+      }
+    },
+    {
+      "name": "tetragon never reconstructs exact argv",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-14",
+        "event_type": "process.exec",
+        "source": "tetragon",
+        "completeness": "partial",
+        "process": {
+          "pid": 31014,
+          "ppid": 0,
+          "exe": "/usr/bin/python3",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "python3",
+            "-c",
+            "pass"
+          ]
+        },
+        "missing_fields": [
+          "process.argv_exact"
+        ]
+      },
+      "expected": {
+        "retained": true,
+        "finding": null
+      }
+    },
+    {
+      "name": "partial audit argv",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-15",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31015,
+          "ppid": 0,
+          "exe": "/usr/bin/python3",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "python3",
+            "-c",
+            "pass"
+          ]
+        },
+        "missing_fields": [
+          "process.argv_exact"
+        ]
+      },
+      "expected": {
+        "retained": true,
+        "finding": null
+      }
+    },
+    {
+      "name": "redacted argv cannot prove inline code",
+      "event": {
+        "schema_version": "0.1",
+        "event_id": "webshell-process-scenario-16",
+        "event_type": "process.exec",
+        "source": "audit",
+        "completeness": "partial",
+        "process": {
+          "pid": 31016,
+          "ppid": 0,
+          "exe": "/usr/bin/python3",
+          "uid": 1000,
+          "euid": 1000,
+          "gid": 1000,
+          "egid": 1000,
+          "cwd": "/srv/application",
+          "origin_service": "example-web.service",
+          "lineage_confidence": "unknown",
+          "complete": false,
+          "argv": [
+            "python3",
+            "-c",
+            "pass"
+          ]
+        },
+        "redacted_fields": [
+          "process.argv"
+        ]
+      },
+      "expected": {
+        "retained": true,
+        "finding": null
+      }
+    }
+  ]
+}

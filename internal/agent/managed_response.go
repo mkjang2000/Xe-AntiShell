@@ -18,7 +18,7 @@ func (s *Service) executeResponses(ctx context.Context, event model.Event, findi
 	defer s.managedRuntime.policyMu.Unlock()
 	for index := range findings {
 		finding := &findings[index]
-		if finding.ResponseDecision != "terminate_pending" {
+		if finding.DetectionOnly || finding.ResponseDecision != "terminate_pending" {
 			continue
 		}
 		decision, detail := "refused", "live source or approved policy no longer satisfies response requirements"

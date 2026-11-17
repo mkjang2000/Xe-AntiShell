@@ -77,7 +77,13 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 		result, policyError = "stale", "approved policy expired; detection continues with response disabled"
 	}
 	s.detectionState.Store(&detectionState{
-		engine:  detection.NewWithServices(policy.Detection.WebExecutables, policy.Detection.WebServices, policy.Detection.Shells, policy.Detection.AllowedPairs),
+		engine: detection.NewWithOptions(detection.Options{
+			WebExecutables:       policy.Detection.WebExecutables,
+			WebServices:          policy.Detection.WebServices,
+			Shells:               policy.Detection.Shells,
+			AllowedPairs:         policy.Detection.AllowedPairs,
+			ExtendedProcessRules: policy.Detection.ExtendedProcessRules,
+		}),
 		enabled: policy.Detection.Enabled, policy: &policy,
 	})
 	runtime.mu.Lock()
@@ -87,6 +93,9 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 }
 
 func (s *Service) validatePolicyCoverage(policy managed.Policy) error {
+	if policy.Detection.ExtendedProcessRules && (len(s.config.Collector.Audit.IncludeExecutables) != 0 || len(s.config.Collector.Tetragon.IncludeExecutables) != 0) {
+		return errors.New("extended process rules require empty audit and Tetragon executable filters")
+	}
 	if !policy.Detection.Enabled {
 		return nil
 	}
@@ -135,21 +144,31 @@ func (s *Service) applyResponseDecisions(findings []model.Finding, policy *manag
 	}
 	for index := range findings {
 		finding := &findings[index]
-		switch finding.Severity {
-		case "critical":
-			finding.RiskScore = 95
-		case "high":
-			finding.RiskScore = 85
-		case "medium":
-			finding.RiskScore = 60
-		default:
-			finding.RiskScore = 30
+		if len(finding.RiskFactors) == 0 {
+			switch finding.Severity {
+			case "critical":
+				finding.RiskScore = 95
+			case "high":
+				finding.RiskScore = 85
+			case "medium":
+				finding.RiskScore = 60
+			default:
+				finding.RiskScore = 30
+			}
 		}
 		finding.ResponseDecision = "observe"
+		if policy != nil {
+			finding.PolicyRevision = policy.Revision
+		}
+		// Extended rules are a detector-only rollout. Neither an old enforce
+		// policy nor a high additive score may turn them into signal targets.
+		if finding.DetectionOnly {
+			finding.ResponseDecision = "detection_only"
+			continue
+		}
 		if policy == nil {
 			continue
 		}
-		finding.PolicyRevision = policy.Revision
 		if (policy.Response.Mode != "would_block" && policy.Response.Mode != "enforce") || !time.Now().Before(policy.ExpiresAt) {
 			continue
 		}

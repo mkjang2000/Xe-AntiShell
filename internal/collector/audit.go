@@ -1,7 +1,6 @@
 package collector
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"xe-antishell/internal/identity"
 	"xe-antishell/internal/model"
@@ -54,10 +52,11 @@ type auditGroup struct {
 }
 
 type auditRecord struct {
-	typeName string
-	raw      string
-	fields   map[string]string
-	quoted   map[string]bool
+	typeName      string
+	raw           string
+	fields        map[string]string
+	quoted        map[string]bool
+	fieldsInvalid bool
 }
 
 func NewAuditAssembler(options AuditAssemblerOptions) *AuditAssembler {
@@ -206,8 +205,8 @@ func parseAuditRecord(line string) (auditRecord, uint64, time.Time, error) {
 		return auditRecord{}, 0, time.Time{}, fmt.Errorf("%w: timestamp: %v", ErrInvalidAuditRecord, err)
 	}
 	bodyStart := headerStart + headerLength + len("):")
-	fields, quoted := parseAuditFields(line[bodyStart:])
-	return auditRecord{typeName: typeName, raw: line, fields: fields, quoted: quoted}, serial, eventTime, nil
+	fields, quoted, invalid := parseAuditFields(line[bodyStart:])
+	return auditRecord{typeName: typeName, raw: line, fields: fields, quoted: quoted, fieldsInvalid: invalid}, serial, eventTime, nil
 }
 
 func parseAuditTime(value string) (time.Time, error) {
@@ -231,33 +230,43 @@ func parseAuditTime(value string) (time.Time, error) {
 	return time.Unix(seconds, nanoseconds).UTC(), nil
 }
 
-func parseAuditFields(input string) (map[string]string, map[string]bool) {
+func parseAuditFields(input string) (map[string]string, map[string]bool, bool) {
 	fields := make(map[string]string)
 	quoted := make(map[string]bool)
+	invalid := false
 	for index := 0; index < len(input); {
 		for index < len(input) && input[index] == ' ' {
 			index++
+		}
+		if index == len(input) {
+			break
 		}
 		start := index
 		for index < len(input) && input[index] != '=' && input[index] != ' ' {
 			index++
 		}
 		if index >= len(input) || input[index] != '=' {
+			invalid = true
 			for index < len(input) && input[index] != ' ' {
 				index++
 			}
 			continue
 		}
 		key := input[start:index]
+		if key == "" {
+			invalid = true
+		}
 		index++
 		valueStart := index
 		if index < len(input) && input[index] == '"' {
 			quoted[key] = true
 			index++
 			escaped := false
+			closed := false
 			for index < len(input) {
 				if input[index] == '"' && !escaped {
 					index++
+					closed = true
 					break
 				}
 				escaped = input[index] == '\\' && !escaped
@@ -266,14 +275,25 @@ func parseAuditFields(input string) (map[string]string, map[string]bool) {
 				}
 				index++
 			}
+			if !closed || index < len(input) && input[index] != ' ' {
+				invalid = true
+			}
+			// Audit quoting does not establish Go escape semantics. Preserve
+			// existing display decoding, but do not claim escaped values are exact.
+			if strings.Contains(input[valueStart:index], `\`) {
+				invalid = true
+			}
 		} else {
 			for index < len(input) && input[index] != ' ' {
 				index++
 			}
 		}
+		if _, duplicate := fields[key]; duplicate {
+			invalid = true
+		}
 		fields[key] = unquoteAuditValue(input[valueStart:index])
 	}
-	return fields, quoted
+	return fields, quoted, invalid
 }
 
 func unquoteAuditValue(value string) string {
@@ -284,38 +304,6 @@ func unquoteAuditValue(value string) string {
 		return strings.Trim(value, "\"")
 	}
 	return value
-}
-
-func decodeAuditArgument(value string, encoded bool) string {
-	if encoded && len(value) >= 2 && len(value)%2 == 0 && isHex(value) {
-		if decoded, err := hex.DecodeString(value); err == nil {
-			if utf8.Valid(decoded) && printableAuditBytes(decoded) {
-				return strings.ReplaceAll(string(decoded), "\x00", " ")
-			}
-		}
-	}
-	return value
-}
-
-func printableAuditBytes(value []byte) bool {
-	for _, b := range value {
-		if b == 0 || b == '\t' || b == '\n' || b == '\r' {
-			continue
-		}
-		if b < 0x20 || b == 0x7f {
-			return false
-		}
-	}
-	return true
-}
-
-func isHex(value string) bool {
-	for _, char := range value {
-		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
-			return false
-		}
-	}
-	return true
 }
 
 func (a *AuditAssembler) normalize(group *auditGroup, ingestTime time.Time, complete bool) (model.Event, bool) {
@@ -336,7 +324,7 @@ func (a *AuditAssembler) normalize(group *auditGroup, ingestTime time.Time, comp
 	}
 	a.options.Metadata.apply(&event)
 	event.ID = identity.SourceEventID(event.BootID, event.Source, event.Type, event.SourceEventID)
-	argvByIndex := make(map[int]string)
+	var arguments auditArgv
 	var rawRecords []string
 	foundExec, foundSyscall := false, false
 	for _, record := range group.records {
@@ -344,15 +332,7 @@ func (a *AuditAssembler) normalize(group *auditGroup, ingestTime time.Time, comp
 		switch record.typeName {
 		case "EXECVE":
 			foundExec = true
-			for key, value := range record.fields {
-				if len(key) < 2 || key[0] != 'a' {
-					continue
-				}
-				index, err := strconv.Atoi(key[1:])
-				if err == nil {
-					argvByIndex[index] = decodeAuditArgument(value, !record.quoted[key])
-				}
-			}
+			arguments.add(record)
 		case "SYSCALL":
 			foundSyscall = true
 			event.Process.PID = auditInt(record.fields["pid"])
@@ -369,16 +349,13 @@ func (a *AuditAssembler) normalize(group *auditGroup, ingestTime time.Time, comp
 	if !foundExec {
 		return model.Event{}, false
 	}
-	indexes := make([]int, 0, len(argvByIndex))
-	for index := range argvByIndex {
-		indexes = append(indexes, index)
+	argv, firstArgument, exactArgv := arguments.normalized()
+	event.Process.Argv = argv
+	if !exactArgv || !complete || group.truncated {
+		event.MissingFields = append(event.MissingFields, "process.argv_exact")
 	}
-	sort.Ints(indexes)
-	for _, index := range indexes {
-		event.Process.Argv = append(event.Process.Argv, argvByIndex[index])
-	}
-	if event.Process.Exe == "" && len(event.Process.Argv) != 0 {
-		event.Process.Exe = event.Process.Argv[0]
+	if event.Process.Exe == "" {
+		event.Process.Exe = firstArgument
 	}
 	if len(a.includeExecutables) != 0 {
 		if _, included := a.includeExecutables[filepath.Base(event.Process.Exe)]; !included {
@@ -403,7 +380,7 @@ func (a *AuditAssembler) normalize(group *auditGroup, ingestTime time.Time, comp
 	if group.truncated {
 		event.TruncatedFields = append(event.TruncatedFields, "audit.records")
 	}
-	if complete && foundSyscall && !group.truncated {
+	if complete && foundSyscall && !group.truncated && exactArgv {
 		event.Completeness = model.CompletenessComplete
 	}
 	event.RawJSON, _ = json.Marshal(rawRecords)

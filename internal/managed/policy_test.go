@@ -1,6 +1,7 @@
 package managed
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
 	"math"
@@ -96,6 +97,107 @@ func TestPolicyStrictSchemaAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPolicySignaturePreservesLegacyDetectionPayload(t *testing.T) {
+	// These declarations preserve the pre-extension field order and JSON tags.
+	type legacyDetectionPolicy struct {
+		Enabled        bool     `json:"enabled"`
+		WebExecutables []string `json:"web_executables"`
+		WebServices    []string `json:"web_services"`
+		Shells         []string `json:"shells"`
+		AllowedPairs   []string `json:"allowed_pairs"`
+	}
+	type legacyPolicy struct {
+		SchemaVersion string                `json:"schema_version"`
+		ID            string                `json:"policy_id"`
+		Revision      uint64                `json:"revision"`
+		AgentID       string                `json:"agent_id"`
+		EnrollmentID  string                `json:"enrollment_id"`
+		IssuedAt      time.Time             `json:"issued_at"`
+		ExpiresAt     time.Time             `json:"expires_at"`
+		Detection     legacyDetectionPolicy `json:"detection"`
+		Response      ResponsePolicy        `json:"response"`
+		UninstallMode string                `json:"uninstall_mode"`
+		Monitoring    MonitoringPolicy      `json:"monitoring"`
+	}
+	trusted, private := testSigningKeys(t)
+	now := time.Date(2026, 11, 16, 3, 0, 0, 0, time.UTC)
+	p := DefaultPolicy("agent", "enrollment", 1, now)
+	if p.Detection.ExtendedProcessRules {
+		t.Fatal("default signed policy must preserve original detection behavior")
+	}
+	legacy := legacyPolicy{
+		SchemaVersion: p.SchemaVersion, ID: p.ID, Revision: p.Revision,
+		AgentID: p.AgentID, EnrollmentID: p.EnrollmentID, IssuedAt: p.IssuedAt, ExpiresAt: p.ExpiresAt,
+		Detection: legacyDetectionPolicy{p.Detection.Enabled, p.Detection.WebExecutables, p.Detection.WebServices, p.Detection.Shells, p.Detection.AllowedPairs},
+		Response:  p.Response, UninstallMode: p.UninstallMode, Monitoring: p.Monitoring,
+	}
+	legacyBody, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature, err := signValue("policy", "current", legacy, private, MaxPolicyBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(struct {
+		Policy    json.RawMessage `json:"policy"`
+		KeyID     string          `json:"key_id"`
+		Signature string          `json:"signature"`
+	}{legacyBody, "current", signature})
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := DecodeSignedPolicy(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := VerifyPolicy(signed, trusted, "agent", "enrollment", 1, now)
+	if err != nil {
+		t.Fatalf("pre-extension signature rejected: %v", err)
+	}
+	if decoded.Detection.ExtendedProcessRules {
+		t.Fatal("legacy signed payload enabled extended process rules")
+	}
+	currentBody, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(currentBody, legacyBody) {
+		t.Fatalf("legacy signed bytes changed:\nold: %s\nnew: %s", legacyBody, currentBody)
+	}
+	signed.Policy.Detection.ExtendedProcessRules = true
+	if _, err := VerifyPolicy(signed, trusted, "agent", "enrollment", 1, now); err == nil {
+		t.Fatal("unsigned expansion of detection rules accepted")
+	}
+}
+
+func TestPolicyExtendedProcessRulesRoundTrip(t *testing.T) {
+	trusted, private := testSigningKeys(t)
+	now := time.Now().UTC()
+	p := DefaultPolicy("agent", "enrollment", 1, now)
+	p.Detection.ExtendedProcessRules = true
+	signed, err := SignPolicy(p, "current", private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeSignedPolicy(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := VerifyPolicy(decoded, trusted, "agent", "enrollment", 1, now)
+	if err != nil || !verified.Detection.ExtendedProcessRules {
+		t.Fatalf("extended policy roundtrip: %#v %v", verified.Detection, err)
+	}
+	decoded.Policy.Detection.ExtendedProcessRules = false
+	if _, err := VerifyPolicy(decoded, trusted, "agent", "enrollment", 1, now); err == nil {
+		t.Fatal("tampered extended rule option accepted")
+	}
+}
+
 func TestPolicyValidationRejectsUnboundedOrUnsafeInputs(t *testing.T) {
 	now := time.Now().UTC()
 	for _, test := range []struct {
@@ -119,10 +221,13 @@ func TestPolicyValidationRejectsUnboundedOrUnsafeInputs(t *testing.T) {
 		{"unknown uninstall", func(p *Policy) { p.UninstallMode = "force" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			p := DefaultPolicy("agent", "enroll", 1, now)
-			test.mutate(&p)
-			if p.Validate() == nil {
-				t.Fatal("unsafe policy accepted")
+			for _, extended := range []bool{false, true} {
+				p := DefaultPolicy("agent", "enroll", 1, now)
+				p.Detection.ExtendedProcessRules = extended
+				test.mutate(&p)
+				if p.Validate() == nil {
+					t.Fatalf("unsafe policy accepted with extended process rules = %t", extended)
+				}
 			}
 		})
 	}

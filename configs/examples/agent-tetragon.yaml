@@ -55,6 +55,9 @@ privacy:
 
 detection:
   enabled: true
+  # Shell-only collection retains the original rules. The broader opt-in example
+  # is agent-webshell-detection.yaml and requires empty executable filters.
+  extended_process_rules: false
   # Dedicated web runtimes only; generic node/python names cover unrelated workloads.
   web_executables: [httpd, apache2, nginx, php-fpm, gunicorn, uwsgi]
   # Examples only. Replace/add exact service names from the target host inventory.

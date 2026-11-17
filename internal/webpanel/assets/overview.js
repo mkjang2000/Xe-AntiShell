@@ -9,9 +9,10 @@ function operationalQuantity(value) {return Number.isFinite(value) && value >= 0
 function effectiveResponse(summary) {
   if (!summary) return {label: "미확인", note: "대응 설정을 확인할 수 없습니다."};
   if (!summary.detection_enabled) return {label: "탐지 중지", note: "탐지 정책이 꺼져 있습니다."};
-  if (summary.response_mode === "observe") return {label: "탐지 전용", note: "기록을 확인한 뒤 수동으로 대응합니다."};
-  if (summary.response_mode === "would_block") return {label: "모의 대응", note: "대응 조건만 확인하며 프로세스를 종료하지 않습니다."};
-  if (summary.response_mode === "enforce" && summary.response_action === "terminate") return {label: "조건부 자동 종료", note: "정책과 안전 조건을 충족할 때 종료를 시도합니다."};
+  if (summary.extended_process_rules === true) return {label: "확장 탐지 전용", note: "웹 서비스의 셸과 도구 실행을 확장 탐지하며 자동 종료하지 않습니다."};
+  if (summary.response_mode === "observe") return {label: "탐지 전용", note: "기본 셸 탐지 · 기록을 확인한 뒤 수동으로 대응합니다."};
+  if (summary.response_mode === "would_block") return {label: "모의 대응", note: "기본 셸 탐지 · 대응 조건만 확인하며 프로세스를 종료하지 않습니다."};
+  if (summary.response_mode === "enforce" && summary.response_action === "terminate") return {label: "조건부 자동 종료", note: "기본 셸 탐지 · 정책과 안전 조건을 충족할 때 종료를 시도합니다."};
   return {label: "확인 필요", note: "적용된 대응 설정을 확인하세요."};
 }
 
@@ -56,7 +57,7 @@ function renderRecentFindings(findings) {
     description.append(title, origin, hint);
     const status = document.createElement("div");status.className = "review-state";
     status.append(tag(operatorLabel("severity", finding.severity), ["critical", "high", "medium", "low"].includes(finding.severity) ? finding.severity : "inactive"));
-    const response = document.createElement("span");response.textContent = operatorLabel("response", finding.response_decision);
+    const response = document.createElement("span");response.textContent = operatorLabel("response", finding.detection_only === true ? "detection_only" : finding.response_decision);
     status.append(response);row.append(time, description, status);return row;
   });
   byId("recentFindings").replaceChildren(...rows);

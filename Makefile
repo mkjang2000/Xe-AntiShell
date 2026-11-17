@@ -1,4 +1,4 @@
-.PHONY: build test test-race vet static clean check-tools check-source format-check test-scripts verify rpm
+.PHONY: build test test-race vet static clean check-tools check-source format-check test-scripts test-detection verify rpm
 
 BUILD_DIR ?= build
 RPM_OUTPUT_DIR ?= dist/rpm
@@ -58,6 +58,10 @@ verify:
 	$(MAKE) vet
 	$(MAKE) test-race
 	$(MAKE) static
+	$(MAKE) test-detection
+
+test-detection:
+	python3 scripts/check-detection.py --bin-dir "$(BUILD_DIR)"
 
 rpm:
 	./scripts/build-rpm.sh --output-dir "$(RPM_OUTPUT_DIR)"

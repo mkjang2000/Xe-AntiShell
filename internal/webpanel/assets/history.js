@@ -178,11 +178,7 @@ function recordsLayout(time, title, description, context, badges) {
 }
 
 function recordsFindingText(finding) {
-  const known = finding.rule_id === "web-descendant-root-shell" || finding.rule_id === "web-descendant-shell";
-  return {
-    title: findingTitle(finding),
-    description: known ? "서비스가 운영체제 명령을 실행했습니다. 정상 배포 작업인지 확인하세요." : "탐지 조건에 해당하는 실행 기록입니다. 상세 기록을 확인하세요.",
-  };
+  return findingRuleText(finding);
 }
 
 function recordsFindingProcess(finding) {
@@ -201,16 +197,30 @@ function recordsConfidence(value) {
   return `${description} · 원본 값 ${value}`;
 }
 
+function recordsRiskFields(finding) {
+  const factors = Array.isArray(finding.risk_factors) ? finding.risk_factors.slice(0, 8) : [];
+  if (!factors.length) return [["규칙 점수", Number.isFinite(finding.risk_score) ? `${finding.risk_score}/100 · 규칙 등급을 점수로 표시한 값이며 악성 확률이 아닙니다.` : "이전 기록 · 점수 없음"]];
+  const score = Number.isFinite(finding.risk_score) ? `${finding.risk_score}/100` : "점수 미확인";
+  const fields = [["규칙 기여 점수 합계", `${score} · 관찰 근거별 기여 점수의 합계(최대 100점)입니다. 악성 확률이나 실제 공격 확정을 뜻하지 않습니다.`]];
+  factors.forEach((factor, index) => {
+    const contribution = factor && Number.isInteger(factor.score) && factor.score >= 0 && factor.score <= 100 ? `+${factor.score}점` : "점수 미확인";
+    fields.push([`관찰 근거 ${index + 1}`, `${contribution} · ${findingRiskFactorText(factor)}`]);
+  });
+  return fields;
+}
+
 function findingCard(finding) {
   const copy = recordsFindingText(finding), process = recordsFindingProcess(finding);
   const badges = [recordsBadge("severity", finding.severity)];
-  badges.push(tag(operatorLabel("response", finding.response_decision || "unknown"), "response-result"));
+  const response = finding.detection_only === true ? "detection_only" : finding.response_decision || "unknown";
+  badges.push(tag(operatorLabel("response", response), "response-result"));
   if (isSelfTestFinding(finding)) badges.push(tag("기능 점검", "selftest"));
   const origin = [serviceLabel(finding.origin_service), process.exe, process.pid ? `PID ${process.pid}` : ""].filter(Boolean).join(" · ");
   const article = recordsLayout(finding.created_at, copy.title, copy.description, origin, badges);
   article.append(recordDetails([
     ["검토 상태", operatorLabel("state", finding.state)], ["탐지 규칙", finding.rule_id], ["탐지 원문", finding.summary],
-    ["규칙 점수", Number.isFinite(finding.risk_score) ? `${finding.risk_score}/100 · 규칙 등급을 점수로 표시한 값이며 악성 확률이 아닙니다.` : "이전 기록 · 점수 없음"],
+    ...recordsRiskFields(finding),
+    ...(finding.detection_only === true ? [["대응 범위", "확장 탐지 전용 · 이 탐지는 자동 종료 대상에 포함되지 않습니다."]] : []),
     ["추적 근거", recordsConfidence(finding.confidence)], ["증거 기록", `${(finding.evidence_event_ids || []).length}건`],
     ["탐지 식별자", finding.finding_id], ["규칙 버전", finding.rule_version], ["프로세스 식별자", finding.process_key],
     ["증거 이벤트 식별자", (finding.evidence_event_ids || []).join(" · ")], ["수집 출처", finding.source],
