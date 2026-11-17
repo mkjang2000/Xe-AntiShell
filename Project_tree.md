@@ -70,6 +70,8 @@ Xe-AntiShell/
 │   ├── check-detection.py         # Temporary agent/CLI replay check without live changes
 │   └── check_source_test.py       # Isolated Git/archive hygiene regression tests
 ├── devdocs/plans/
+│   ├── interactive-installation.md # TTY workflow and trusted single-code enrollment
+│   ├── rocky10-package-validation.md # EL10 userspace/RPM scope and kernel validation boundary
 │   ├── git-readiness.md           # Installer, source privacy, Git and validation scope
 │   ├── mit-publication.md          # MIT, bundled notices and initial public push scope
 │   ├── central-management.md      # Central integration and installer boundaries
