@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f3f5f7">
+  <title>Xe-AntiShell 서버 보안 현황</title>
+  <script src="/assets/theme.js"></script>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/presentation.js" defer></script>
+  <script src="/assets/capabilities.js" defer></script>
+  <script src="/assets/overview.js" defer></script>
+  <script src="/assets/history.js" defer></script>
+  <script src="/assets/resources.js" defer></script>
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#mainContent">본문으로 바로가기</a>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark small" aria-hidden="true">XE</span><div><strong>Xe-AntiShell</strong><span>서버 보안 모니터</span></div></div>
+    <div class="top-actions"><span id="refreshState" class="refresh-state">불러오는 중</span><button class="ghost theme-toggle" data-theme-toggle type="button" aria-pressed="false">다크 모드</button><button id="refreshButton" class="ghost" type="button">새로고침</button><form method="post" action="/logout"><button class="ghost" type="submit">로그아웃</button></form></div>
+  </header>
+  <main id="mainContent" class="shell" tabindex="-1">
+    <section class="hero" aria-labelledby="pageTitle"><div><h1 id="pageTitle">서버 보안 현황</h1><p id="hostSubtitle" class="muted">서버 상태를 확인하고 있습니다.</p></div><div id="overallBadge" class="status-badge neutral"><span aria-hidden="true"></span><span id="overallLabel">연결 확인 중</span></div></section>
+    <div id="errorBanner" class="error-banner hidden" role="alert"></div>
+    <div class="view-tabs" role="tablist" aria-label="모니터링 화면">
+      <button id="tab-overview" type="button" role="tab" aria-controls="view-overview" aria-selected="true" tabindex="0" data-view="overview">운영 현황</button>
+      <button id="tab-findings" type="button" role="tab" aria-controls="view-findings" aria-selected="false" tabindex="-1" data-view="findings">탐지 검토</button>
+      <button id="tab-events" type="button" role="tab" aria-controls="view-events" aria-selected="false" tabindex="-1" data-view="events">실행 이력</button>
+      <button id="tab-system" type="button" role="tab" aria-controls="view-system" aria-selected="false" tabindex="-1" data-view="system">시스템·수집 상태</button>
+    </div>
+    <section id="view-overview" class="view-panel" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+      <h2 class="visually-hidden">운영 현황 요약</h2>
+      <div class="metric-grid overview-summary" aria-label="운영 핵심 정보">
+        <article class="metric"><h3>실행 정보 수집</h3><strong id="healthValue">—</strong><p id="modeValue">상태 확인 중</p></article>
+        <article class="metric"><h3>검토 대상 탐지</h3><strong id="findingCount">—</strong><p id="criticalCount">보존 이력 전체 기준</p></article>
+        <article class="metric"><h3>최근 24시간 탐지</h3><strong id="todayFindingCount">—</strong><p id="selfTestCount">기능 점검 제외</p></article>
+        <article class="metric"><h3>현재 대응 방식</h3><strong id="responseValue">—</strong><p id="responseNote">설정 확인 중</p></article>
+      </div>
+      <div class="operation-line"><span>최근 보존 이력 <strong id="lastEventValue">—</strong></span><span id="collectorValue">집계 확인 중</span><span>수집 누락 <strong id="lossValue">—</strong>건</span><span>처리 오류 <strong id="parseValue">—</strong></span><span id="eventTotal">최근 24시간 집계 확인 중</span></div>
+      <section class="attention-strip" aria-labelledby="attentionHeading"><h2 id="attentionHeading">운영 점검</h2><div id="attentionList"></div></section>
+      <div class="operator-columns">
+        <section class="panel" aria-labelledby="recentFindingsTitle"><div class="panel-head"><h2 id="recentFindingsTitle">최근 탐지</h2><button id="allFindingsButton" class="ghost" type="button">전체 탐지 검토</button></div><div id="recentFindings" class="review-list"></div><p id="recentFindingsEmpty" class="empty hidden">아직 검토할 탐지 기록이 없습니다.</p><p class="section-note">최근 5건 · 기능 점검 제외 · 정상 배포나 관리 작업도 탐지될 수 있습니다.</p></section>
+        <div class="operator-side">
+        <section class="panel" aria-labelledby="serviceOverviewTitle"><div class="panel-head"><h2 id="serviceOverviewTitle">서비스별 탐지</h2></div><p id="serviceOverviewDescription" class="section-note">탐지 이력이 있는 서비스를 표시합니다.</p><div class="resource-table-wrap"><table class="service-overview-table"><caption class="visually-hidden">서비스별 보존 탐지와 실행 이력</caption><thead><tr><th scope="col">서비스</th><th scope="col">탐지</th><th scope="col">실행 이력</th><th scope="col">조회</th></tr></thead><tbody id="serviceOverview"></tbody></table></div><p id="servicesEmpty" class="empty hidden">아직 탐지 이력이 있는 서비스가 없습니다.</p></section>
+      <section id="managedOverview" class="panel" aria-labelledby="managedTitle"><div class="panel-head"><h2 id="managedTitle">중앙 연결·정책</h2><span id="managedBadge" class="tag inactive">확인 중</span></div><p id="managedIdentity" class="section-note"></p><div id="managedCards" class="resource-grid managed-facts"></div><p id="managedWarnings" class="managed-warning error-text hidden"></p><div id="managedTechnical"></div></section>
+        </div>
+      </div>
+      <section id="resourceOverview" class="panel hidden" aria-labelledby="resourceTitle"><div class="panel-head"><h2 id="resourceTitle">서버 자원</h2><span class="section-note">실시간 측정값 · 상세는 시스템에서 확인</span></div><div id="resourceCards" class="resource-grid"></div></section>
+      <details class="operation-technical"><summary>표시 기준</summary><p class="section-note">검토 대상은 보존된 탐지 중 종료되지 않은 기록입니다. 기능 점검 이력은 별도로 집계합니다. 위험도는 확인 우선순위를 위한 규칙 분류이며 침해 확정이나 악성 확률을 뜻하지 않습니다. 실행 이력은 탐지 관련 보존 기록으로, 모든 프로세스 실행을 저장한 목록은 아닙니다. 수집 누락·오류는 이 에이전트가 집계한 값입니다.</p></details>
+    </section>
+    <section id="view-findings" class="view-panel" role="tabpanel" aria-labelledby="tab-findings" tabindex="0" hidden>
+      <div class="panel history-panel"><div class="panel-head"><h2>탐지 검토</h2><span class="section-note">서비스별 · 페이지당 10건</span></div>
+        <form id="findingsFilters" class="history-filters" role="search" aria-label="탐지 검색"><div class="field"><label for="findingsService">서비스</label><select id="findingsService"><option value="">모든 서비스</option></select></div><div class="field grow"><label for="findingSearch">탐지 내용 검색</label><input id="findingSearch" type="search" placeholder="규칙명, 실행 파일 등" maxlength="200"></div><div class="field"><label for="severityFilter">위험도</label><select id="severityFilter"><option value="">전체</option><option value="critical">매우 높음</option><option value="high">높음</option><option value="medium">보통</option><option value="low">낮음</option></select></div><label class="check-field" for="includeSelfTests"><input id="includeSelfTests" type="checkbox">기능 점검 이력 포함</label><button class="primary" type="submit">검색</button></form>
+        <p class="section-note">서비스를 펼쳐 의심 행위와 대응 결과를 확인하세요. 상세 보기에서 실행 경로와 원문을 확인할 수 있습니다.</p><p id="findingsStatus" class="history-status" role="status" aria-live="polite"></p><div id="findingsGroups" class="history-groups" aria-busy="false"></div><p id="findingsEmpty" class="empty hidden">조건에 맞는 탐지가 없습니다.</p><nav class="pagination compact-pager" aria-label="탐지 페이지"><button id="findingsPrevious" class="ghost" type="button" disabled>이전</button><span id="findingsPage" class="page-description">1페이지</span><button id="findingsNext" class="ghost" type="button" disabled>다음</button></nav>
+      </div>
+    </section>
+    <section id="view-events" class="view-panel" role="tabpanel" aria-labelledby="tab-events" tabindex="0" hidden>
+      <div class="panel history-panel"><div class="panel-head"><h2>실행 이력</h2><span class="section-note">보존된 탐지 관련 실행 기록</span></div><form id="eventsFilters" class="history-filters" role="search" aria-label="실행 이력 검색"><div class="field"><label for="eventsService">서비스</label><select id="eventsService"><option value="">모든 서비스</option></select></div><div class="field grow"><label for="eventSearch">실행 파일·서비스 검색</label><input id="eventSearch" type="search" placeholder="예: /bin/sh" maxlength="200"></div><button class="primary" type="submit">검색</button></form><p id="eventsStatus" class="history-status" role="status" aria-live="polite"></p><div id="eventsGroups" class="history-groups" aria-busy="false"></div><p id="eventsEmpty" class="empty hidden">조건에 맞는 실행 이력이 없습니다.</p><nav class="pagination compact-pager" aria-label="실행 이력 페이지"><button id="eventsPrevious" class="ghost" type="button" disabled>이전</button><span id="eventsPage" class="page-description">1페이지</span><button id="eventsNext" class="ghost" type="button" disabled>다음</button></nav></div>
+    </section>
+    <section id="view-system" class="view-panel" role="tabpanel" aria-labelledby="tab-system" tabindex="0" hidden>
+      <h2 class="visually-hidden">시스템과 수집 상태</h2>
+      <div class="system-columns">
+        <section class="panel capability-panel" aria-labelledby="capabilityTitle"><div class="panel-head"><h2 id="capabilityTitle">수집·대응 기능</h2><span id="capabilitySummary" class="pill">확인 중</span></div><div id="capabilityList" class="capability-list"></div><details class="capability-planned"><summary>서버 지원 정보</summary><p class="capability-note">수집 기능의 사전 검사 정보입니다. 각 기능의 실제 상태는 위 목록에서 확인하세요.</p><div id="prerequisiteCapabilityList" class="capability-list"></div></details><details id="plannedCapabilities" class="capability-planned"><summary><span>추가 개발 예정</span><span id="plannedCapabilityCount" class="pill">0개</span></summary><p class="capability-note">아래 기능은 현재 탐지에 사용되지 않습니다.</p><div id="plannedCapabilityList" class="capability-list"></div></details></section>
+        <section class="panel" aria-labelledby="systemInfoTitle"><div class="panel-head"><h2 id="systemInfoTitle">서버 정보</h2></div><dl id="systemDetails" class="detail-list"></dl><div id="systemTechnical"></div></section>
+      </div>
+      <section id="resourceDetails" class="panel hidden" aria-labelledby="resourceDetailsTitle"><div class="panel-head"><h2 id="resourceDetailsTitle">자원 상세</h2><span id="resourceSampleTime" class="pill">측정 확인 중</span></div><div id="systemResourceCards" class="resource-grid"></div><p id="resourceSampleNote" class="section-note"></p><div id="resourceWarnings" class="section-note hidden" role="status"></div><details class="resource-details"><summary id="filesystemHeading">디스크 용량</summary><div id="filesystemList" class="resource-detail-grid"></div></details><details class="resource-details"><summary id="diskIOHeading">디스크 읽기·쓰기</summary><div id="diskIOList" class="resource-detail-grid"></div></details><details class="resource-details"><summary id="networkHeading">네트워크 사용량</summary><div id="networkList" class="resource-detail-grid"></div></details><details class="resource-details"><summary id="processHeading">프로세스 목록</summary><p id="processListNote" class="section-note"></p><div class="process-table-wrap" role="region" aria-label="프로세스 목록, 가로로 스크롤할 수 있습니다" tabindex="0"><table class="process-table"><caption>CPU·메모리 사용량 순으로 수집한 프로세스</caption><thead><tr><th scope="col">프로세스</th><th scope="col">서비스</th><th scope="col">PID / 사용자</th><th scope="col">CPU</th><th scope="col">사용 메모리</th></tr></thead><tbody id="processListBody"></tbody></table></div><nav class="pagination compact-pager" aria-label="프로세스 페이지"><button id="processPrevious" class="ghost" type="button" disabled>이전</button><span id="processPage" class="page-description">1페이지</span><button id="processNext" class="ghost" type="button" disabled>다음</button></nav></details></section>
+    </section>
+    <noscript><p class="error-banner">이 패널을 사용하려면 JavaScript를 활성화해야 합니다.</p></noscript>
+  </main>
+  <dialog id="processDialog" aria-labelledby="dialogTitle"><div class="dialog-head"><h2 id="dialogTitle">프로세스 실행 경로</h2><button id="dialogClose" class="icon-button" type="button" aria-label="실행 경로 닫기">×</button></div><div id="processTree" class="process-tree" aria-live="polite"></div></dialog>
+</body>
+</html>

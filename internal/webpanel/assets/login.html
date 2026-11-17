@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f3f5f7">
+  <title>Xe-AntiShell 로그인</title>
+  <script src="/assets/theme.js"></script>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <div class="brand-mark" aria-hidden="true">XE</div>
+    <p class="eyebrow">LOCAL SECURITY MONITOR</p>
+    <h1>Xe-AntiShell</h1>
+    <p class="muted">이 호스트의 탐지 이력과 수집 상태를 확인합니다.</p>
+    {{if .Error}}<div class="login-error" role="alert">아이디 또는 비밀번호가 올바르지 않습니다.</div>{{end}}
+    <form method="post" action="/login" class="login-form">
+      <label for="username">사용자</label>
+      <input id="username" name="username" type="text" autocomplete="username" maxlength="64" required autofocus>
+      <label for="password">비밀번호</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+      <button type="submit">로그인</button>
+    </form>
+    <p class="login-note">인증 필수 · 읽기 전용 패널</p>
+    <div class="login-theme"><button class="ghost theme-toggle" data-theme-toggle type="button" aria-pressed="false">다크 모드</button></div>
+  </main>
+</body>
+</html>

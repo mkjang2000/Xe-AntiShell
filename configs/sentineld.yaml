@@ -1,0 +1,71 @@
+version: 1
+
+agent:
+  id: ""
+  socket_path: /run/xe-antishell/sentineld.sock
+  database_path: /var/lib/xe-antishell/sentineld.db
+
+collector:
+  mode: auto
+  tetragon:
+    command: /usr/bin/tetra
+    args:
+      - getevents
+      - -o
+      - json
+  audit:
+    input_path: ""
+    # Empty keeps every normalized exec event. Production monitor policies can
+    # list exact basenames (for example sh and bash) to bound local storage.
+    include_executables: []
+    # When true, audit events are retained only when their live service or
+    # executable ancestry matches detection.web_services/web_executables.
+    only_detection_origins: false
+  replay:
+    path: ""
+
+limits:
+  max_event_bytes: 262144
+  max_raw_json_bytes: 131072
+  max_argv: 128
+  max_argument_bytes: 4096
+  queue_size: 256
+  query_default: 100
+  query_maximum: 1000
+  retention_days: 7
+
+privacy:
+  store_raw_events: false
+  redact_argv: true
+  sensitive_argument_names:
+    - password
+    - passwd
+    - token
+    - access-token
+    - api-key
+    - apikey
+    - secret
+    - client-secret
+    - authorization
+
+detection:
+  enabled: true
+  web_executables:
+    - httpd
+    - apache2
+    - nginx
+    - php-fpm
+    - gunicorn
+    - uwsgi
+  web_services: []
+  shells:
+    - sh
+    - bash
+    - dash
+    - zsh
+    - ksh
+    - ash
+  allowed_pairs: []
+
+response:
+  allow_terminate: false

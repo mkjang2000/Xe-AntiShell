@@ -1,0 +1,66 @@
+# Monitor-only example. Install and validate the external Tetragon collector first.
+# Adjust binary/socket paths and exact web service names for the target host.
+version: 1
+
+agent:
+  # Empty uses the host name for local evidence; choose a unique ID for enrollment.
+  id: ""
+  socket_path: /run/xe-antishell/sentineld.sock
+  database_path: /var/lib/xe-antishell/sentineld.db
+
+collector:
+  mode: tetragon
+  tetragon:
+    command: /usr/local/bin/tetra
+    args:
+      - --server-address
+      - unix:///run/tetragon/tetragon.sock
+      - getevents
+      - -o
+      - json
+    # Preserve the full stream in bounded lineage memory, but retain shell candidates.
+    include_executables: [sh, bash, dash, zsh, ksh, ash]
+    only_detection_origins: true
+  audit:
+    # This source is inactive in Tetragon mode. Review audit rules before switching.
+    input_path: ""
+    include_executables: [sh, bash, dash, zsh, ksh, ash]
+    only_detection_origins: true
+  replay:
+    path: ""
+
+limits:
+  max_event_bytes: 262144
+  max_raw_json_bytes: 131072
+  max_argv: 128
+  max_argument_bytes: 4096
+  queue_size: 256
+  query_default: 100
+  query_maximum: 1000
+  retention_days: 7
+
+privacy:
+  store_raw_events: false
+  redact_argv: true
+  sensitive_argument_names:
+    - password
+    - passwd
+    - token
+    - access-token
+    - api-key
+    - apikey
+    - secret
+    - client-secret
+    - authorization
+
+detection:
+  enabled: true
+  # Dedicated web runtimes only; generic node/python names cover unrelated workloads.
+  web_executables: [httpd, apache2, nginx, php-fpm, gunicorn, uwsgi]
+  # Examples only. Replace/add exact service names from the target host inventory.
+  web_services: [nginx.service, example-web.service]
+  shells: [sh, bash, dash, zsh, ksh, ash]
+  allowed_pairs: []
+
+response:
+  allow_terminate: false

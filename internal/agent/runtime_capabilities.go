@@ -1,0 +1,220 @@
+package agent
+
+import (
+	"time"
+
+	"xe-antishell/internal/capability"
+	"xe-antishell/internal/collector"
+	"xe-antishell/internal/model"
+	"xe-antishell/internal/response"
+)
+
+// Evidence is scoped to this daemon lifetime and source. Refreshing passive
+// prerequisites cannot fabricate receipt of a live source event.
+type sourceRuntimeEvidence struct {
+	ExecAt    time.Time
+	LineageAt time.Time
+}
+
+func (s *Service) recordRuntimeEvent(event model.Event) {
+	if event.Type != "process.exec" || event.Process.PID < 1 || event.Process.Exe == "" || (event.Source != "audit" && event.Source != "tetragon") {
+		return
+	}
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	if s.runtimeEvidence == nil {
+		s.runtimeEvidence = make(map[string]sourceRuntimeEvidence)
+	}
+	evidence := s.runtimeEvidence[event.Source]
+	evidence.ExecAt = time.Now().UTC()
+	if event.Process.ParentKey != "" && (event.Process.LineageConfidence == model.LineageVerified || (event.Source == "audit" && event.Process.LineageConfidence == model.LineageInferred)) {
+		evidence.LineageAt = evidence.ExecAt
+	}
+	s.runtimeEvidence[event.Source] = evidence
+}
+
+func (s *Service) runtimeSnapshot() (model.AgentStatus, model.CapabilityReport) {
+	s.statusMu.RLock()
+	status := s.status
+	report := cloneCapabilityReport(s.report)
+	evidence := s.runtimeEvidence[sourceForCollector(status.Collector)]
+	s.statusMu.RUnlock()
+	if status.LastEventAt != nil {
+		at := *status.LastEventAt
+		status.LastEventAt = &at
+	}
+	stream := s.collectorHealthSnapshot()
+	status.CollectorHealth = stream
+	if status.Collector == "tetragon-json" && status.Mode == model.AgentModeActive {
+		if stream != nil && stream.LastError != "" {
+			status.Health = model.HealthError
+			status.LastError = stream.LastError
+		} else if evidence.ExecAt.IsZero() && status.Health == model.HealthHealthy {
+			status.Health = model.HealthStarting
+		} else if stream != nil && stream.ParseErrors != 0 && status.Health == model.HealthHealthy {
+			status.Health = model.HealthDegraded
+		}
+	}
+	applyRuntimeCapabilities(&report, status, evidence, stream)
+	if report.Capabilities == nil {
+		report.Capabilities = make(map[string]model.Capability)
+	}
+	report.Capabilities[response.CapabilityName] = response.Capability(s.config.Response.AllowTerminate)
+	status.CapabilityReport = &report
+	return status, report
+}
+
+func sourceForCollector(name string) string {
+	switch name {
+	case "audit-dispatcher":
+		return "audit"
+	case "tetragon-json":
+		return "tetragon"
+	default:
+		return ""
+	}
+}
+
+func (s *Service) collectorHealthSnapshot() *model.CollectorHealth {
+	s.collectorMu.Lock()
+	selected := s.collector
+	s.collectorMu.Unlock()
+	if selected == nil {
+		return nil
+	}
+	return collectorHealth(selected.Health())
+}
+
+func collectorHealth(value collector.HealthSnapshot) *model.CollectorHealth {
+	health := &model.CollectorHealth{
+		Name: value.Name, Running: value.Running,
+		EventsReceived: value.EventsReceived, EventsEmitted: value.EventsEmitted,
+		EventsSkipped: value.EventsDropped, ParseErrors: value.ParseErrors,
+		LastError: value.LastError,
+	}
+	if !value.LastEventAt.IsZero() {
+		at := value.LastEventAt
+		health.LastEventAt = &at
+	}
+	return health
+}
+
+func applyRuntimeCapabilities(report *model.CapabilityReport, status model.AgentStatus, evidence sourceRuntimeEvidence, stream *model.CollectorHealth) {
+	for name, value := range report.Capabilities {
+		value.Implementation = "implemented"
+		value.RuntimeState = "inactive"
+		value.RuntimeReason = "host prerequisite is unavailable"
+		switch value.State {
+		case model.CapabilitySupported:
+			value.RuntimeState = "available"
+			value.RuntimeReason = "host prerequisite detected; this is not proof of active monitoring"
+		case model.CapabilityLimited:
+			value.RuntimeState = "unverified"
+			value.RuntimeReason = "passive checks only; runtime operation has not been verified"
+		case model.CapabilityError:
+			value.RuntimeState = "error"
+			value.RuntimeReason = "host prerequisite probe failed"
+		}
+		switch name {
+		case capability.FileCapability, capability.NetworkCapability, capability.CredentialCapability:
+			value.Implementation = "planned"
+			value.RuntimeState = "inactive"
+			value.RuntimeReason = "agent observation and detection are not implemented"
+		case capability.IMACapability, capability.TPMCapability:
+			value.Implementation = "planned"
+			value.RuntimeState = "inactive"
+			value.RuntimeReason = "host prerequisite probe only; agent integrity verification is not implemented"
+		case capability.AuditCapability, capability.TetragonCapability:
+			value.RuntimeState = "inactive"
+			value.RuntimeReason = "not the selected process collector"
+		case capability.ProcessExecCapability, capability.ProcessLineageCapability:
+			value.RuntimeState = "inactive"
+			value.RuntimeReason = "no live process collector is selected"
+		}
+		report.Capabilities[name] = value
+	}
+
+	source := sourceForCollector(status.Collector)
+	if source == "" {
+		return
+	}
+	collectorName := capability.AuditCapability
+	if source == "tetragon" {
+		collectorName = capability.TetragonCapability
+	}
+	setRuntime(report, collectorName, "unverified", "collector selected; awaiting a real process execution event", time.Time{})
+	setRuntime(report, capability.ProcessExecCapability, "unverified", "waiting for process execution evidence from the selected collector", time.Time{})
+	setRuntime(report, capability.ProcessLineageCapability, "unverified", "waiting for an execution event with source or derived ancestry", time.Time{})
+	if !evidence.ExecAt.IsZero() {
+		collectorReason := "live Tetragon process execution events received"
+		execReason := "kernel process execution stream received; durable evidence may be limited by candidate filters"
+		if source == "audit" {
+			collectorReason = "live audit execution events received through the dispatcher; full rule coverage remains unverified"
+			execReason = "audit execution events received; candidate filters apply and audit provides no process-exit stream"
+		}
+		setRuntime(report, collectorName, "active", collectorReason, evidence.ExecAt)
+		setRuntime(report, capability.ProcessExecCapability, "active", execReason, evidence.ExecAt)
+		if source == "tetragon" {
+			setRuntime(report, capability.EBPFCapability, "active", "live Tetragon execution evidence confirms process eBPF hooks are attached", evidence.ExecAt)
+		}
+	}
+	if !evidence.LineageAt.IsZero() {
+		reason := "Tetragon source ancestry received; missing parents remain explicit"
+		if source == "audit" {
+			reason = "derived ancestry observed from audit and live process context; no process-exit stream"
+		}
+		setRuntime(report, capability.ProcessLineageCapability, "active", reason, evidence.LineageAt)
+	}
+	if status.Health == model.HealthError || (status.LastError != "" && status.Mode != model.AgentModeActive) || (stream != nil && stream.LastError != "") {
+		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability} {
+			setRuntime(report, name, "error", "selected collector or agent reported a runtime failure; inspect system status", time.Time{})
+		}
+		if source == "tetragon" {
+			setRuntime(report, capability.EBPFCapability, "unverified", "source operation failed; active attachment is no longer established by this agent", time.Time{})
+		}
+		return
+	}
+	if stream != nil && !stream.Running {
+		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability} {
+			setRuntime(report, name, "unverified", "selected collector stream is not running", time.Time{})
+		}
+		if source == "tetragon" {
+			setRuntime(report, capability.EBPFCapability, "unverified", "selected collector stream is not running", time.Time{})
+		}
+	}
+}
+
+func setRuntime(report *model.CapabilityReport, name, state, reason string, verified time.Time) {
+	value, ok := report.Capabilities[name]
+	if !ok {
+		value = model.Capability{Name: name, State: model.CapabilityLimited, Provider: "runtime", Reason: "passive prerequisite was not reported", Implementation: "implemented"}
+	}
+	value.RuntimeState = state
+	value.RuntimeReason = reason
+	value.VerifiedAt = nil
+	if !verified.IsZero() {
+		at := verified
+		value.VerifiedAt = &at
+	}
+	report.Capabilities[name] = value
+}
+
+func cloneCapabilityReport(source model.CapabilityReport) model.CapabilityReport {
+	clone := source
+	clone.Capabilities = make(map[string]model.Capability, len(source.Capabilities))
+	for name, value := range source.Capabilities {
+		if value.Details != nil {
+			details := make(map[string]string, len(value.Details))
+			for key, detail := range value.Details {
+				details[key] = detail
+			}
+			value.Details = details
+		}
+		if value.VerifiedAt != nil {
+			at := *value.VerifiedAt
+			value.VerifiedAt = &at
+		}
+		clone.Capabilities[name] = value
+	}
+	return clone
+}

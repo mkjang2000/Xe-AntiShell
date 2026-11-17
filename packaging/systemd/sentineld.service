@@ -1,0 +1,22 @@
+[Unit]
+Description=Xe-AntiShell standalone host security agent
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=simple
+Group=xe-antishell
+ExecStart=/usr/sbin/sentineld --config /etc/xe-antishell/sentineld.yaml
+Restart=on-failure
+RestartSec=5s
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/xe-antishell /run/xe-antishell
+RuntimeDirectory=xe-antishell
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

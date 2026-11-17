@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+# Install a local or source-built RPM; enrollment credentials remain file inputs.
+set -euo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+XEAS_OS_RELEASE_FILE=/etc/os-release
+XEAS_WEB_AUTH_FILE=/etc/xe-antishell/web-auth.json
+XEAS_WEB_PASSWORD_FILE=/root/xe-antishell-web-initial-password.txt
+XEAS_INSTALL_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+XEAS_BUILD_SCRIPT=$XEAS_INSTALL_ROOT/scripts/build-rpm.sh
+
+usage() {
+  cat <<'USAGE'
+Usage: sudo ./install.sh (--rpm PATH | --build) [OPTIONS]
+
+Choose one package source:
+  --rpm PATH              Local xe-antishell RPM (no package download)
+  --build                 Build this source checkout with scripts/build-rpm.sh
+
+Optional central enrollment (supply all five together):
+  --central HTTPS_URL     Trusted central server URL
+  --agent-id ID           Unique agent identifier
+  --ca-file PATH          Already trusted central CA certificate
+  --token-file PATH       Root-owned owner-only enrollment token file
+  --recovery-file PATH    Root-only offline recovery file to create or reuse
+
+Other options:
+  --enable-web            Initialize missing web credentials and start the panel
+  -h, --help              Show this help
+
+The installer preserves existing configuration and credentials. It does not
+change firewall rules, enable enforcement, or install Tetragon automatically.
+RPM dependencies must already be available. OS/version and kernel capabilities
+need their own validation; a successful install does not certify OS support.
+--build additionally requires the documented Go, make and rpmbuild toolchain.
+USAGE
+}
+
+fail() { printf 'install.sh: %s\n' "$*" >&2; return 1; }
+warn() { printf 'install.sh: warning: %s\n' "$*" >&2; }
+
+require_root() {
+  (( EUID == 0 )) || fail 'Run this installer as root.'
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "Required command is missing: $1"
+}
+
+check_regular_file() {
+  [[ -f "$1" && -r "$1" && ! -L "$1" ]] || fail "Expected a readable regular file, not a symlink: $1"
+}
+
+check_private_file() {
+  local owner mode
+  check_regular_file "$1" || return 1
+  owner=$(stat -c '%u' -- "$1") || return 1
+  mode=$(stat -c '%a' -- "$1") || return 1
+  if [[ "$owner" != 0 ]]; then
+    fail "Secret file must be owned by root: $1"; return 1
+  fi
+  (( (8#$mode & 8#77) == 0 )) || fail "Secret file must have owner-only permissions (for example 0600): $1"
+}
+
+check_file_size() {
+  local size
+  size=$(stat -c '%s' -- "$1") || return 1
+  if [[ ! "$size" =~ ^[0-9]+$ ]] || (( size < 1 || size > $2 )); then
+    fail "Input file is empty or exceeds its size limit: $1"; return 1
+  fi
+}
+
+detect_os() {
+  local os_id=unknown os_version=unknown key value major
+  if [[ -r "$XEAS_OS_RELEASE_FILE" ]]; then
+    while IFS='=' read -r key value; do
+      value=${value#\"}; value=${value%\"}
+      value=${value#\'}; value=${value%\'}
+      case "$key" in ID) os_id=$value ;; VERSION_ID) os_version=$value ;; esac
+    done < "$XEAS_OS_RELEASE_FILE"
+  fi
+  major=${os_version%%.*}
+  printf 'Detected OS: %s %s. Runtime probes determine available features.\n' "$os_id" "$os_version"
+  case "$os_id:$major" in
+    rocky:8|rocky:9|rocky:10|rhel:8|rhel:9|rhel:10|almalinux:8|almalinux:9|almalinux:10|centos:7) ;;
+    *) warn 'This OS is outside the intended Rocky/RHEL/Alma 8–10 or CentOS 7 families. RPM compatibility is unverified.' ;;
+  esac
+  if [[ "$os_id:$major" != rocky:9 ]]; then
+    warn 'The current live validation host is Rocky Linux 9; this OS/version requires separate validation.'
+  fi
+  if [[ "$os_id:$major" == centos:7 ]]; then
+    warn 'The packaged web service uses modern systemd credentials; CentOS 7 needs a compatible web service unit before web use.'
+  fi
+}
+
+wait_for_agent() {
+  local attempt
+  for (( attempt=0; attempt<30; attempt++ )); do
+    if sentinel status >/dev/null 2>&1; then return 0; fi
+    sleep 1
+  done
+  fail 'The agent API did not become ready within 30 seconds. Check journalctl -u sentineld.'
+}
+
+systemd_manager_version() {
+  local output
+  output=$(systemctl show --property=Version --no-pager) || {
+    fail 'A running systemd system manager is required for installation.'; return 1
+  }
+  if [[ ! "$output" =~ ^Version=([0-9]+) ]]; then
+    fail 'Cannot identify the running systemd manager version.'; return 1
+  fi
+  printf '%s\n' "${BASH_REMATCH[1]}"
+}
+
+check_web_preflight() {
+  if (( 10#$1 < 247 )); then
+    fail 'The packaged web service requires systemd 247 or newer for LoadCredential. Install the agent without --enable-web on this host.'; return 1
+  fi
+  if [[ -e "$XEAS_WEB_AUTH_FILE" || -L "$XEAS_WEB_AUTH_FILE" ]]; then
+    check_private_file "$XEAS_WEB_AUTH_FILE" || return 1
+    check_file_size "$XEAS_WEB_AUTH_FILE" 16384 || return 1
+  elif [[ -e "$XEAS_WEB_PASSWORD_FILE" || -L "$XEAS_WEB_PASSWORD_FILE" ]]; then
+    fail 'An initial password file already exists without a matching web authentication file. Preserve it and resolve the incomplete setup before retrying.'; return 1
+  fi
+  if [[ -e "$XEAS_WEB_PASSWORD_FILE" || -L "$XEAS_WEB_PASSWORD_FILE" ]]; then
+    check_private_file "$XEAS_WEB_PASSWORD_FILE" || return 1
+    check_file_size "$XEAS_WEB_PASSWORD_FILE" 4096 || return 1
+  fi
+}
+
+build_local_rpm() {
+  "$XEAS_BUILD_SCRIPT" --output-dir "$1"
+}
+
+check_web_active() {
+  # Type=simple can briefly be active before credential loading or bind fails.
+  systemctl is-active --quiet sentinel-web.service || return 1
+  sleep 1
+  systemctl is-active --quiet sentinel-web.service
+}
+
+enable_web() {
+  require_command sentinel-web || return 1
+  if [[ -L "$XEAS_WEB_AUTH_FILE" ]]; then
+    fail 'Refusing a symlink at the web authentication path.'
+    return 1
+  fi
+  if [[ ! -e "$XEAS_WEB_AUTH_FILE" ]]; then
+    sentinel-web init-auth --file "$XEAS_WEB_AUTH_FILE" \
+      --initial-password-file "$XEAS_WEB_PASSWORD_FILE" --username admin || return 1
+  else
+    check_regular_file "$XEAS_WEB_AUTH_FILE" || return 1
+    printf 'Preserving existing web administrator credentials.\n'
+  fi
+  chown root:root "$XEAS_WEB_AUTH_FILE" || return 1
+  chmod 0600 "$XEAS_WEB_AUTH_FILE" || return 1
+  systemctl enable --now sentinel-web.service || return 1
+  check_web_active || {
+    fail 'The web service is not active. Check journalctl -u sentinel-web.'; return 1
+  }
+  printf 'Web panel enabled. Initial password, when newly created: %s\n' "$XEAS_WEB_PASSWORD_FILE"
+}
+
+main() (
+  local rpm_path='' central_url='' agent_id='' ca_file='' token_file='' recovery_file=''
+  local with_web=false with_build=false option value supplied=0 package_name recovery_parent candidate_nevra installed_nevra manager_version
+  local build_directory=''
+  local nevra_format='%{NAME}-%{EPOCH}:%{VERSION}-%{RELEASE}.%{ARCH}'
+  trap 'if [[ -n "${build_directory:-}" ]]; then rm -rf -- "$build_directory"; fi' EXIT
+  while (( $# )); do
+    option=$1
+    case "$option" in
+      -h|--help) usage; return 0 ;;
+      --enable-web) with_web=true; shift ;;
+      --build) with_build=true; shift ;;
+      --rpm|--central|--agent-id|--ca-file|--token-file|--recovery-file)
+        if (( $# < 2 )) || [[ -z "$2" || "$2" == --* ]]; then
+          fail "Missing value for $option"; return 1
+        fi
+        value=$2
+        case "$option" in
+          --rpm) rpm_path=$value ;; --central) central_url=$value ;;
+          --agent-id) agent_id=$value ;; --ca-file) ca_file=$value ;;
+          --token-file) token_file=$value ;; --recovery-file) recovery_file=$value ;;
+        esac
+        shift 2 ;;
+      *) fail "Unknown option: $option"; return 1 ;;
+    esac
+  done
+  if [[ "$with_build" == true && -n "$rpm_path" ]] || [[ "$with_build" == false && -z "$rpm_path" ]]; then
+    fail 'Choose exactly one of --rpm PATH or --build. Use --help for examples.'; return 1
+  fi
+  for value in "$central_url" "$agent_id" "$ca_file" "$token_file" "$recovery_file"; do
+    if [[ -n "$value" ]]; then (( supplied+=1 )); fi
+  done
+  if (( supplied != 0 && supplied != 5 )); then
+    fail 'Central enrollment requires all five of --central --agent-id --ca-file --token-file --recovery-file.'
+    return 1
+  fi
+  require_root || return 1
+  umask 077
+  for value in rpm systemctl stat; do require_command "$value" || return 1; done
+  if [[ "$with_build" == true ]]; then
+    for value in mktemp rm; do require_command "$value" || return 1; done
+    check_regular_file "$XEAS_BUILD_SCRIPT" || return 1
+    [[ -x "$XEAS_BUILD_SCRIPT" ]] || { fail 'The RPM build helper must be executable.'; return 1; }
+  else
+    check_regular_file "$rpm_path" || return 1
+  fi
+  if (( supplied )); then
+    [[ "$central_url" =~ ^https://[^/?#@[:space:]]+/?$ ]] || { fail '--central must be an HTTPS origin without credentials, query, or fragment.'; return 1; }
+    [[ "$agent_id" =~ ^[a-zA-Z0-9_.:-]{1,128}$ ]] || { fail 'Invalid --agent-id.'; return 1; }
+    check_regular_file "$ca_file" || return 1
+    check_file_size "$ca_file" 65536 || return 1
+    check_private_file "$token_file" || return 1
+    check_file_size "$token_file" 4096 || return 1
+    if [[ -e "$recovery_file" || -L "$recovery_file" ]]; then
+      check_private_file "$recovery_file" || return 1
+      check_file_size "$recovery_file" 4096 || return 1
+    else
+      recovery_parent=$(dirname -- "$recovery_file")
+      [[ -d "$recovery_parent" && -w "$recovery_parent" ]] || { fail 'The recovery file parent directory must already exist and be writable.'; return 1; }
+    fi
+  fi
+  manager_version=$(systemd_manager_version) || return 1
+  if [[ "$with_web" == true ]]; then check_web_preflight "$manager_version" || return 1; fi
+  detect_os
+  if [[ "$with_build" == true ]]; then
+    build_directory=$(mktemp -d /tmp/xeas-install-build.XXXXXX) || return 1
+    printf 'Building the supplied source checkout before installing packages.\n'
+    build_local_rpm "$build_directory" || return 1
+    shopt -s nullglob
+    local artifacts=("$build_directory"/*.rpm)
+    if (( ${#artifacts[@]} != 1 )); then
+      fail 'The build helper must produce exactly one RPM in its output directory.'; return 1
+    fi
+    rpm_path=${artifacts[0]}
+    check_regular_file "$rpm_path" || return 1
+  fi
+  package_name=$(rpm -qp --queryformat '%{NAME}' -- "$rpm_path") || return 1
+  [[ "$package_name" == xe-antishell ]] || { fail 'The supplied RPM is not the xe-antishell package.'; return 1; }
+  candidate_nevra=$(rpm -qp --queryformat "$nevra_format" -- "$rpm_path") || return 1
+  installed_nevra=$(rpm -q --queryformat "$nevra_format" xe-antishell 2>/dev/null) || installed_nevra=''
+  if [[ "$installed_nevra" == "$candidate_nevra" ]]; then
+    printf 'The same RPM version and architecture are installed; continuing setup.\n'
+  else
+    printf 'Installing supplied local RPM.\n'
+    rpm -Uvh -- "$rpm_path" || return 1
+  fi
+  systemctl daemon-reload || return 1
+  systemctl enable --now sentineld.service || return 1
+  require_command sentinel || return 1
+  wait_for_agent || return 1
+  if (( supplied )); then
+    printf 'Enrolling with the central server using protected file inputs.\n'
+    sentinel managed enroll --central "$central_url" --agent-id "$agent_id" \
+      --ca-file "$ca_file" --token-file "$token_file" --recovery-file "$recovery_file" || return 1
+    printf 'Preserve the recovery file securely outside this host for emergency removal.\n'
+  fi
+  if [[ "$with_web" == true ]]; then enable_web || return 1; fi
+  printf 'Package and agent API setup completed. Verify observed collection with sentinel capabilities and the monitoring panel.\n'
+  printf 'Tetragon installation and audit-rule activation require separate host review.\n'
+)
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
