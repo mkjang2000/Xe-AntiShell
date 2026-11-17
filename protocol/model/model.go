@@ -128,8 +128,11 @@ type Event struct {
 	Process         Process      `json:"process" yaml:"process"`
 	// Ancestors are bounded source-provided process snapshots, nearest first.
 	// They provide context and are not additional execution events.
-	Ancestors []Process       `json:"ancestors,omitempty" yaml:"ancestors,omitempty"`
-	RawJSON   json.RawMessage `json:"raw_json,omitempty" yaml:"raw_json,omitempty"`
+	Ancestors []Process             `json:"ancestors,omitempty" yaml:"ancestors,omitempty"`
+	RawJSON   json.RawMessage       `json:"raw_json,omitempty" yaml:"raw_json,omitempty"`
+	Execution *ExecutionObservation `json:"execution,omitempty" yaml:"execution,omitempty"`
+	File      *FileObservation      `json:"file,omitempty" yaml:"file,omitempty"`
+	Network   *NetworkObservation   `json:"network,omitempty" yaml:"network,omitempty"`
 }
 
 // RiskFactor is a bounded rule contribution, not a probability of compromise.
