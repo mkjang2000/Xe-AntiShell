@@ -1,6 +1,7 @@
 package managed
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
 	"math"
@@ -11,9 +12,17 @@ import (
 
 func updateFixture() UpdatePlan {
 	now := time.Date(2026, 11, 17, 14, 0, 0, 0, time.UTC)
-	return UpdatePlan{ProtocolVersion: UpdateProtocolVersion, JobID: "job-1", RolloutID: "rollout-1", AgentID: "agent-1", EnrollmentID: "enrollment-123456789", Revision: 3, IssuedAt: now, ExpiresAt: now.Add(15 * time.Minute),
+	plan := UpdatePlan{ProtocolVersion: UpdateProtocolVersion, JobID: "job-1", RolloutID: "rollout-1", AgentID: "agent-1", EnrollmentID: "enrollment-123456789", Revision: 3, IssuedAt: now, ExpiresAt: now.Add(15 * time.Minute),
 		Release:         UpdateRelease{ID: "release-1", Package: RPMPackage{Name: "xe-antishell", Version: "0.1.0", Release: "23.el9", Arch: "x86_64"}, OSFamily: "rhel", OSMajor: "9", SHA256: strings.Repeat("a", 64), Size: 12345, CreatedAt: now.Add(-time.Hour)},
 		ExpectedPackage: RPMPackage{Name: "xe-antishell", Version: "0.1.0", Release: "22.el9", Arch: "x86_64"}}
+	private := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x5a}, ed25519.SeedSize))
+	plan.Release.Publisher, _ = SignReleaseManifest(ReleaseManifest{SchemaVersion: SchemaVersion, ArtifactName: "xe-antishell-0.1.0-23.el9.x86_64.rpm", Package: plan.Release.Package, OSFamily: plan.Release.OSFamily, OSMajor: plan.Release.OSMajor, SHA256: plan.Release.SHA256, Size: plan.Release.Size, PublishedAt: now.Add(-time.Hour)}, "test-release", private)
+	return plan
+}
+
+func testPublisherKeys() map[string]ed25519.PublicKey {
+	private := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x5a}, ed25519.SeedSize))
+	return map[string]ed25519.PublicKey{"test-release": private.Public().(ed25519.PublicKey)}
 }
 
 func TestUpdatePlanSignatureIdentityRevisionAndDomain(t *testing.T) {
@@ -25,7 +34,7 @@ func TestUpdatePlanSignatureIdentityRevisionAndDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	verify := func(value SignedUpdatePlan, agent, enrollment string, revision uint64, now time.Time) error {
-		_, err := VerifyUpdatePlan(value, trusted, agent, enrollment, revision, now)
+		_, err := VerifyUpdatePlan(value, trusted, testPublisherKeys(), agent, enrollment, revision, now)
 		return err
 	}
 	if err := verify(signed, plan.AgentID, plan.EnrollmentID, plan.Revision, plan.IssuedAt); err != nil {
@@ -68,7 +77,7 @@ func TestUpdateInstallAuthorizationBindsExactPlanAndShortValidity(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := UpdateAuthorization{ProtocolVersion: 1, JobID: plan.JobID, AgentID: plan.AgentID, EnrollmentID: plan.EnrollmentID, Revision: plan.Revision, PlanSHA256: digest, IssuedAt: plan.IssuedAt, ExpiresAt: plan.IssuedAt.Add(2 * time.Minute)}
+	a := UpdateAuthorization{ProtocolVersion: UpdateProtocolVersion, JobID: plan.JobID, AgentID: plan.AgentID, EnrollmentID: plan.EnrollmentID, Revision: plan.Revision, PlanSHA256: digest, IssuedAt: plan.IssuedAt, ExpiresAt: plan.IssuedAt.Add(2 * time.Minute)}
 	signed, err := SignUpdateAuthorization(a, "key-1", private)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +137,7 @@ func TestUpdateReleaseAndPlanBounds(t *testing.T) {
 
 func TestUpdateReportsRequireFixedDiagnosticsAndObservedPackage(t *testing.T) {
 	plan := updateFixture()
-	report := UpdateReport{ProtocolVersion: 1, JobID: plan.JobID, EnrollmentID: plan.EnrollmentID, Revision: 3, Sequence: 1, State: "downloading", RunningVersion: "0.1.0-22.el9", ObservedAt: plan.IssuedAt}
+	report := UpdateReport{ProtocolVersion: UpdateProtocolVersion, JobID: plan.JobID, EnrollmentID: plan.EnrollmentID, Revision: 3, Sequence: 1, State: "downloading", RunningVersion: "0.1.0-22.el9", ObservedAt: plan.IssuedAt}
 	if err := report.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -139,12 +148,27 @@ func TestUpdateReportsRequireFixedDiagnosticsAndObservedPackage(t *testing.T) {
 			t.Fatal("invalid report accepted")
 		}
 	}
+	withoutCollection := report
+	withoutCollection.State = "succeeded"
+	withoutCollection.InstalledPackage = &plan.Release.Package
+	if withoutCollection.Validate() == nil {
+		t.Fatal("success without collection check accepted")
+	}
 	report.State = "succeeded"
 	report.InstalledPackage = &plan.Release.Package
+	report.CollectionCheck = "verified"
 	if err := report.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	inventory := UpdateInventory{ProtocolVersion: 1, Supported: true, Enabled: true, OSFamily: "rhel", OSMajor: "9", Arch: "x86_64", InstalledPackage: &plan.ExpectedPackage, RunningVersion: "0.1.0-22.el9", ObservedAt: plan.IssuedAt}
+	report.CollectionCheck = "not_applicable"
+	if err := report.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	report.CollectionCheck = "failed"
+	if report.Validate() == nil {
+		t.Fatal("failed collection check claimed success")
+	}
+	inventory := UpdateInventory{ProtocolVersion: UpdateProtocolVersion, Supported: true, Enabled: true, OSFamily: "rhel", OSMajor: "9", Arch: "x86_64", InstalledPackage: &plan.ExpectedPackage, RunningVersion: "0.1.0-22.el9", ObservedAt: plan.IssuedAt}
 	if err := inventory.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -174,6 +198,7 @@ func TestUpdateRPMVersionSyntaxAndEpochBuildIdentity(t *testing.T) {
 	for _, suffix := range []string{"23.el9", "23.el9_8", "23.el9_8.1"} {
 		release := updateFixture().Release
 		release.Package.Release = suffix
+		release.Publisher.Manifest.Package = release.Package
 		if err := release.Validate(); err != nil {
 			t.Fatalf("standard EL point-release suffix rejected: %v", err)
 		}

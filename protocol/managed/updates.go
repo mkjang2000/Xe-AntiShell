@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	UpdateProtocolVersion        = 1
+	UpdateProtocolVersion        = 2
 	MaxUpdateBytes               = 32 << 10
 	MaxUpdateArtifactBytes int64 = 64 << 20
 )
@@ -27,13 +27,14 @@ type RPMPackage struct {
 }
 
 type UpdateRelease struct {
-	ID        string     `json:"id"`
-	Package   RPMPackage `json:"package"`
-	OSFamily  string     `json:"os_family"`
-	OSMajor   string     `json:"os_major"`
-	SHA256    string     `json:"sha256"`
-	Size      int64      `json:"size"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID        string                `json:"id"`
+	Package   RPMPackage            `json:"package"`
+	OSFamily  string                `json:"os_family"`
+	OSMajor   string                `json:"os_major"`
+	SHA256    string                `json:"sha256"`
+	Size      int64                 `json:"size"`
+	CreatedAt time.Time             `json:"created_at"`
+	Publisher SignedReleaseManifest `json:"publisher"`
 }
 
 type UpdatePlan struct {
@@ -103,6 +104,7 @@ type UpdateReport struct {
 	ErrorCode        string      `json:"error_code,omitempty"`
 	InstalledPackage *RPMPackage `json:"installed_package,omitempty"`
 	RunningVersion   string      `json:"running_version"`
+	CollectionCheck  string      `json:"collection_check,omitempty"`
 	ObservedAt       time.Time   `json:"observed_at"`
 }
 
@@ -135,6 +137,9 @@ func (r UpdateRelease) Validate() error {
 	match := elRelease.FindStringSubmatch(r.Package.Release)
 	if len(match) != 2 || match[1] != r.OSMajor {
 		return errors.New("RPM release does not match target EL major")
+	}
+	if !r.Publisher.Matches(r) {
+		return errors.New("missing or mismatched publisher release manifest")
 	}
 	return nil
 }
@@ -194,6 +199,20 @@ func (r UpdateReport) Validate() error {
 	if r.State == "succeeded" && r.InstalledPackage == nil {
 		return errors.New("successful update requires installed package")
 	}
+	switch r.CollectionCheck {
+	case "", "verified", "not_applicable", "failed":
+	default:
+		return errors.New("invalid post-update collection check")
+	}
+	if r.State == "succeeded" && r.CollectionCheck != "verified" && r.CollectionCheck != "not_applicable" {
+		return errors.New("successful update requires collection check outcome")
+	}
+	if r.State != "succeeded" && r.State != "failed" && r.CollectionCheck != "" {
+		return errors.New("premature collection check outcome")
+	}
+	if r.CollectionCheck == "failed" && r.State != "failed" {
+		return errors.New("failed collection check contradicts update state")
+	}
 	return nil
 }
 
@@ -205,13 +224,16 @@ func SignUpdatePlan(plan UpdatePlan, keyID string, private ed25519.PrivateKey) (
 	return SignedUpdatePlan{Plan: plan, KeyID: keyID, Signature: sig}, err
 }
 
-func VerifyUpdatePlan(signed SignedUpdatePlan, trusted map[string]ed25519.PublicKey, agentID, enrollmentID string, minimumRevision uint64, now time.Time) (UpdatePlan, error) {
+func VerifyUpdatePlan(signed SignedUpdatePlan, trusted, publishers map[string]ed25519.PublicKey, agentID, enrollmentID string, minimumRevision uint64, now time.Time) (UpdatePlan, error) {
 	if err := verifyValue("update-plan", signed.KeyID, signed.Plan, signed.Signature, trusted, MaxUpdateBytes); err != nil {
 		return UpdatePlan{}, err
 	}
 	p := signed.Plan
 	if p.Validate() != nil || p.AgentID != agentID || p.EnrollmentID != enrollmentID || p.Revision < minimumRevision || !updateCurrent(p.IssuedAt, p.ExpiresAt, now) {
 		return UpdatePlan{}, errors.New("update plan target, revision or validity rejected")
+	}
+	if _, err := VerifyReleaseManifest(p.Release.Publisher, publishers); err != nil {
+		return UpdatePlan{}, errors.New("publisher release signature rejected")
 	}
 	return p, nil
 }
@@ -251,7 +273,7 @@ func VerifyUpdateAuthorization(signed SignedUpdateAuthorization, trusted map[str
 // Codes are fixed diagnostics; raw command stderr and network bodies are forbidden.
 func ValidUpdateCode(code string) bool {
 	switch code {
-	case "", "none", "disabled", "not_enrolled", "central_unsupported", "unsupported_platform", "unsupported_os", "unsupported_arch", "unsupported_package", "rpm_unavailable", "systemd_unavailable", "helper_unavailable", "custom_paths", "identity_unavailable", "state_unavailable", "signature_invalid", "expired", "target_mismatch", "stale_job", "precondition_changed", "download_failed", "size_mismatch", "hash_mismatch", "metadata_mismatch", "rpm_test_failed", "install_failed", "restart_failed", "health_check_failed", "verification_failed", "interrupted", "busy", "service_unavailable", "queue_failed":
+	case "", "none", "disabled", "not_enrolled", "central_unsupported", "unsupported_platform", "unsupported_os", "unsupported_arch", "unsupported_package", "rpm_unavailable", "systemd_unavailable", "helper_unavailable", "custom_paths", "identity_unavailable", "state_unavailable", "signature_invalid", "expired", "target_mismatch", "stale_job", "precondition_changed", "download_failed", "size_mismatch", "hash_mismatch", "metadata_mismatch", "rpm_test_failed", "install_failed", "restart_failed", "health_check_failed", "collection_check_failed", "verification_failed", "interrupted", "busy", "service_unavailable", "queue_failed":
 		return true
 	}
 	return false
