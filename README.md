@@ -325,11 +325,14 @@ installation. A subsequent setup failure is reported without undoing an already
 installed package; resolve the reported cause and retry.
 
 The central service has its own project, installer, RPM and service account.
-The agent package installs only `sentineld`, `sentinel` and `sentinel-web`.
-Agent updates do not restart central, and central updates do not restart the
-agent. The released agent pins the published
-[`protocol v0.1.2`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.2/protocol)
-module, which adds optional typed execution/file/network facts. Existing
+The agent package installs `sentineld`, `sentinel`, `sentinel-web` and the
+separately dispatched `sentinel-updater` helper.
+The agent RPM owns no central files or service hooks. Distribution RPM triggers
+can still consume pending service restart markers from other packages.
+The released agent pins the published
+[`protocol v0.2.0`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.2.0/protocol)
+module, which includes optional typed execution/file/network facts and separate
+signed package update contracts. Existing
 signature domains, stored identities and approved policy bytes are unchanged;
 consumers need observation-aware software to display the new fields.
 
@@ -340,6 +343,38 @@ non-loopback HTTPS listener and separately trusted CA delivery. The operator
 API remains loopback-only. The central project provides its own authenticated
 fleet console; PostgreSQL, RBAC and automatic certificate renewal remain future work.
 Preserve the offline recovery file outside the monitored host.
+
+### Managed agent package updates
+
+RPM23 adds an independent updater service. Agents on earlier packages need one
+reviewed manual install of an updater-capable RPM; this preserves their existing
+enrollment. Afterward, an enrolled agent can receive a central rollout through
+separate signed update endpoints on the same pinned mTLS origin. Every release
+also needs an independent publisher signature trusted by the agent's built-in
+public keys; central deployment authorization alone cannot install an arbitrary
+package. The plan binds
+the exact EL major/architecture/package, expected installed package, size and
+SHA-256; a short install authorization is required after download. The daemon
+stages the job, and the separate root service runs the fixed RPM transaction.
+
+`updates.enabled` defaults to true for this packaged feature. Set it to false
+in `/etc/xe-antishell/sentineld.yaml` and restart `sentineld` to opt out of new
+work; existing outcomes still report. The helper also rereads the file just
+before applying. Source/dev builds, unrecognized package/platform state,
+missing helpers and custom socket/database paths do not stage new updates.
+Update eligibility does not require a working Tetragon or BPF collector.
+
+Central shows the running build separately from the installed RPM. Success
+requires the target package and an actual responding daemon with that build
+and enrollment; replacing a binary on disk is insufficient. A previously running
+collector must also provide actual fresh exec evidence through the same source
+after restart. Previously inactive collection is marked `not_applicable`;
+an alive API with a dead stream fails the collection check. Interrupted jobs
+reconcile without automatically rerunning RPM, downgrading a package, restoring
+a database or reenrolling. A failed daemon restart can require local operator
+recovery. The check does not certify every sensor or detection rule. See the
+[agent update design](devdocs/plans/managed-agent-updates.md) for trust, journal,
+retry and validation boundaries.
 
 ### Migrating an earlier bundled installation
 
@@ -515,6 +550,10 @@ See the [Korean application procedure](devdocs/analysis/tetragon-installation.ko
 and [pinned-source coverage review](devdocs/research/tetragon-observations.md).
 
 ## Development validation
+
+Publisher keys stay outside the central service's state and the agent RPM.
+See [release building, independent signing and GitHub publication](devdocs/analysis/release-signing.ko.md)
+for the unsigned CI build and developer-side signing/publishing workflow.
 
 ```bash
 make verify        # source/scripts/UI, vet, race tests, static binaries, isolated replay

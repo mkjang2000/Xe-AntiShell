@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"xe-antishell/internal/buildinfo"
 	"xe-antishell/internal/capability"
 	"xe-antishell/internal/collector"
 	"xe-antishell/internal/config"
@@ -23,9 +24,10 @@ import (
 	"xe-antishell/internal/model"
 	"xe-antishell/internal/procfs"
 	"xe-antishell/internal/storage"
+	"xe-antishell/internal/updates"
 )
 
-const Version = "0.1.0-dev"
+var Version = buildinfo.RunningVersion()
 
 var (
 	ErrInvalidEvent    = errors.New("invalid normalized event")
@@ -60,6 +62,7 @@ type Service struct {
 	detector       *detection.Engine
 	detectionState atomic.Pointer[detectionState]
 	managedRuntime *managedRuntime
+	updateManager  *updates.Manager
 
 	eventQueue chan model.Event
 	sequence   atomic.Uint64
@@ -141,6 +144,7 @@ func NewWithProcessSource(cfg config.Config, store *storage.Store, prober Capabi
 	}
 	service.detectionState.Store(&detectionState{engine: service.detector, enabled: cfg.Detection.Enabled})
 	service.managedRuntime = newManagedRuntime()
+	service.updateManager = updates.NewManager()
 	return service, nil
 }
 

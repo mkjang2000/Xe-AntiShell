@@ -1,6 +1,6 @@
 Name:           xe-antishell
 Version:        0.1.0
-Release:        22%{?dist}
+Release:        24%{?dist}
 Summary:        Standalone Linux host security monitoring agent
 License:        MIT AND Apache-2.0 AND BSD-3-Clause AND BSD-2-Clause AND BSD-1-Clause AND SunPro
 URL:            https://github.com/mkjang2000/Xe-AntiShell
@@ -20,15 +20,17 @@ security event sources, builds process lineage, and performs local detection.
 %autosetup
 
 %build
-GOWORK=off GOTOOLCHAIN=local %{__make} static
+GOWORK=off GOTOOLCHAIN=local %{__make} static PACKAGE_EPOCH=%{?epoch}%{!?epoch:0} PACKAGE_VERSION=%{version} PACKAGE_RELEASE=%{release} PACKAGE_ARCH=%{_arch}
 
 %install
 install -D -m 0750 build/sentineld %{buildroot}%{_sbindir}/sentineld
 install -D -m 0755 build/sentinel %{buildroot}%{_bindir}/sentinel
 install -D -m 0755 build/sentinel-web %{buildroot}%{_sbindir}/sentinel-web
+install -D -m 0750 build/sentinel-updater %{buildroot}%{_sbindir}/sentinel-updater
 install -D -m 0640 configs/sentineld.yaml %{buildroot}%{_sysconfdir}/xe-antishell/sentineld.yaml
 install -D -m 0644 packaging/systemd/sentineld.service %{buildroot}%{_unitdir}/sentineld.service
 install -D -m 0644 packaging/systemd/sentinel-web.service %{buildroot}%{_unitdir}/sentinel-web.service
+install -D -m 0644 packaging/systemd/sentinel-updater.service %{buildroot}%{_unitdir}/sentinel-updater.service
 install -D -m 0644 packaging/audit/xe-antishell.conf %{buildroot}%{_datadir}/xe-antishell/audit/xe-antishell.conf
 install -D -m 0644 packaging/audit/90-xe-antishell.rules %{buildroot}%{_datadir}/xe-antishell/audit/90-xe-antishell.rules
 install -d -m 0750 %{buildroot}%{_localstatedir}/lib/xe-antishell
@@ -39,6 +41,7 @@ install -d -m 0750 %{buildroot}%{_localstatedir}/lib/xe-antishell
 %{_sbindir}/sentineld
 %{_bindir}/sentinel
 %{_sbindir}/sentinel-web
+%{_sbindir}/sentinel-updater
 %config(noreplace) %{_sysconfdir}/xe-antishell/sentineld.yaml
 %dir %{_datadir}/xe-antishell
 %dir %{_datadir}/xe-antishell/audit
@@ -46,6 +49,7 @@ install -d -m 0750 %{buildroot}%{_localstatedir}/lib/xe-antishell
 %{_datadir}/xe-antishell/audit/90-xe-antishell.rules
 %{_unitdir}/sentineld.service
 %{_unitdir}/sentinel-web.service
+%{_unitdir}/sentinel-updater.service
 %dir %{_localstatedir}/lib/xe-antishell
 
 %pre
@@ -60,13 +64,22 @@ if [ "$1" -eq 0 ]; then
     # A managed removal must journal authorization before services stop.
     /usr/bin/sentinel managed removal-check >/dev/null || exit 1
 fi
-%systemd_preun sentineld.service sentinel-web.service
+%systemd_preun sentineld.service sentinel-web.service sentinel-updater.service
 
 %postun
 %systemd_postun_with_restart sentineld.service
 %systemd_postun_with_restart sentinel-web.service
 
 %changelog
+* Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-24
+- Require an independent build-publisher signature before remote installation
+- Verify live execution collection after restart and report explicit outcomes
+- Include the managed updater bootstrap and complete RPM build identities
+
+* Tue Nov 17 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-23
+- Add enrollment-bound signed RPM update staging and a separate updater service
+- Report running build and installed package identities independently
+
 * Tue Nov 17 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-22
 - Strengthen detection-only direct execution and interpreter evidence
 - Add bounded monitor-only file writes and TCP initiation observations

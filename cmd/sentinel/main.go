@@ -15,11 +15,13 @@ import (
 	"syscall"
 	"time"
 
+	"xe-antishell/internal/buildinfo"
 	"xe-antishell/internal/localapi"
 	"xe-antishell/internal/model"
 )
 
-const version = "0.1.0-dev"
+var version = buildinfo.RunningVersion()
+
 const defaultSocketPath = "/run/xe-antishell/sentineld.sock"
 
 func main() {

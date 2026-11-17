@@ -32,6 +32,12 @@ type Config struct {
 	Privacy   PrivacyConfig   `json:"privacy" yaml:"privacy"`
 	Detection DetectionConfig `json:"detection" yaml:"detection"`
 	Response  ResponseConfig  `json:"response" yaml:"response"`
+	Updates   UpdatesConfig   `json:"updates" yaml:"updates"`
+}
+
+// Updates are considered only for an enrolled, packaged root systemd agent.
+type UpdatesConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
 }
 
 // AllowTerminate is an explicit host opt-in in addition to a signed policy.
@@ -100,6 +106,7 @@ type DetectionConfig struct {
 func Default() Config {
 	return Config{
 		Version: CurrentVersion,
+		Updates: UpdatesConfig{Enabled: true},
 		Agent: AgentConfig{
 			SocketPath:   "/run/xe-antishell/sentineld.sock",
 			DatabasePath: "/var/lib/xe-antishell/sentinel.db",

@@ -9,9 +9,10 @@
 - Main Language: Go
 - Runtime: Linux (`amd64` is the initial validated build target)
 - Local Database: SQLite (pure-Go driver, WAL mode)
-- Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`
+- Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`, `cmd/sentinel-updater`
+- Developer Tool Entry: `cmd/xeas-release` (publisher signing tool, excluded from RPM payload)
 - Central Project: https://github.com/mkjang2000/Xe-AntiShell-Central
-- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.1.2`
+- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.2.0`
 - Build Command: `make build`, `make static`, or `make rpm`
 - Run Command: `build/sentineld --config configs/sentineld.yaml`
 - Test Command: `make verify` (source, shell/UI, vet, race tests, static build)
@@ -20,15 +21,21 @@
 
 ```text
 Xe-AntiShell/
-├── .github/workflows/ci.yml       # Same verification on Go 1.22 and stable
+├── .github/workflows/
+│   ├── ci.yml                    # Same verification on Go 1.22 and stable
+│   └── release-build.yml         # Unsigned EL9/EL10 candidates; no publisher key or release write access
 ├── cmd/
 │   ├── sentineld/                 # Privileged host-agent daemon entry point
 │   ├── sentinel/                  # Local CLI and audit dispatcher bridge
-│   └── sentinel-web/              # Unprivileged local web panel entry point
+│   ├── sentinel-web/              # Unprivileged local web panel entry point
+│   ├── sentinel-updater/          # Fixed root-only independent RPM apply entry point
+│   └── xeas-release/              # Separate publisher manifest signing/verification CLI
 ├── internal/
 │   ├── agent/                     # Pipeline, runtime evidence, Tetragon context/filtering
 │   │   ├── event_normalization.go # Queue-boundary privacy, exact-proof validation and event limits
-│   │   └── operation_events.go    # Typed operation validation and lifecycle-safe context observation
+│   │   ├── operation_events.go    # Typed operation validation and lifecycle-safe context observation
+│   │   └── managed_update.go      # Separate update inventory/polling/report worker
+│   ├── buildinfo/                 # Injected running RPM epoch/version/release/architecture
 │   ├── capability/                # Host/kernel feature discovery
 │   ├── collector/                 # Tetragon, audit, and replay adapters
 │   │   ├── audit_argv.go          # Bounded count/index validation for exact exec arguments
@@ -45,9 +52,11 @@ Xe-AntiShell/
 │   ├── model/                     # Shared core aliases plus agent-only history/UI models
 │   ├── managedclient/             # Pinned-CA HTTPS, mTLS and safe transport diagnostics
 │   ├── procfs/                    # Minimal live process/cgroup snapshot
+│   ├── releasepublish/            # Explicit publisher commands, private-key file safety and manifest handling
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
 │   ├── storage/                   # SQLite persistence and embedded migrations
 │   │   └── process_context.go     # Durable operation context merge preserving process lifecycle
+│   ├── updates/                   # Publisher/deployment trust, private jobs, RPM apply and collection recheck
 │   └── webpanel/                  # Authentication, monitoring APIs and embedded UI
 │       └── assets/                # Shared Korean labels, operator overview, feature states, history/resources/themes
 ├── configs/
@@ -62,7 +71,7 @@ Xe-AntiShell/
 │   ├── install_wizard_test.py     # Isolated PTY interaction/privacy checks
 │   ├── audit/                     # Opt-in audit plugin and exec-rule templates
 │   ├── rpm/                       # RPM package skeleton
-│   ├── systemd/                   # Generic agent/web/central units
+│   ├── systemd/                   # Agent/web and separately dispatched updater units
 │   └── tetragon/                  # Reviewed overrides plus pinned artifact/config/runtime/rollback helpers
 │       ├── observations.py        # Separate explicit --apply entry for monitor-only observation policies
 │       └── observation_*.py       # Fixed scope, real probes, ownership and transactional rollback
@@ -70,6 +79,8 @@ Xe-AntiShell/
 ├── third_party/licenses/          # Upstream Go/runtime license texts for redistribution
 ├── protocol/                      # Independently tagged, stdlib-only shared Go module
 │   ├── managed/                   # Wire contracts, signatures, removal and recovery primitives
+│   │   ├── updates.go             # Independent signed plan/install lease and separate inventory/report API contracts
+│   │   ├── releases.go            # Independently signed release manifest and built-in public publisher anchors
 │   │   └── testdata/              # Pre-extraction signed-policy/removal compatibility fixtures
 │   └── model/                     # Canonical core events, findings and agent status definitions
 │       └── observations.go        # Optional code-free execution/file/network facts
@@ -78,7 +89,11 @@ Xe-AntiShell/
 │   ├── build_rpm_test.sh          # Mocked tools and real source archive checks
 │   ├── check-source.py            # Candidate source privacy and documentation checks
 │   ├── check-detection.py         # Temporary agent/CLI replay check without live changes
-│   └── check_source_test.py       # Isolated Git/archive hygiene regression tests
+│   ├── check_source_test.py       # Isolated Git/archive hygiene regression tests
+│   ├── build-release-tool.sh      # Build the separate developer publisher CLI
+│   ├── sign-release.sh            # Explicit reviewed release-signing entry; not a daemon/RPM hook
+│   ├── publish-release.sh         # Local signed public bundle and explicit draft/upload/publication
+│   └── publish_release_test.sh    # Mocked publisher/GitHub orchestration without real credentials
 ├── devdocs/plans/
 │   ├── process-observation-clock.md # Lifecycle/observation clock separation and late-event persistence
 │   ├── capability-report-consistency.md # Configured collector discovery and independent live evidence
@@ -89,6 +104,8 @@ Xe-AntiShell/
 │   ├── git-readiness.md           # Installer, source privacy, Git and validation scope
 │   ├── mit-publication.md          # MIT, bundled notices and initial public push scope
 │   ├── central-management.md      # Central integration and installer boundaries
+│   ├── managed-agent-updates.md   # Enrollment-bound RPM update staging, apply, identity and recovery
+│   ├── central-agent-updates.md   # Central release catalog, rollout authorization and publisher trust separation
 │   ├── central-project-separation.md # Separate repositories/packages and safe legacy migration
 │   ├── managed-v1-and-panel-accessibility.md # Implemented v1 contracts and QA plan
 │   ├── panel-light-angular.md     # Light default, restored mark and angular styling
@@ -104,7 +121,8 @@ Xe-AntiShell/
 │   └── in-process-code-observation.md # Phase 3 runtime-specific design; sensors not implemented
 ├── devdocs/analysis/
 │   ├── managed-v1-operations.md   # Generic enrollment, policy, removal and trust procedures
-│   └── tetragon-installation.ko.md # Existing-agent collector setup and manual procedure
+│   ├── tetragon-installation.ko.md # Existing-agent collector setup and manual procedure
+│   └── release-signing.ko.md      # Separate publisher signing and review procedure
 ├── devdocs/reviews/
 │   └── managed-agent-security.md  # Policy/delivery/response boundaries and tests
 ├── devdocs/research/
@@ -137,6 +155,8 @@ sentineld startup
 
 Managed outbox → mTLS sender → central transaction/ACK → outbox cleanup
 Central signed policy → verification/revision persistence → atomic detector replacement
+Central signed update plan → bounded RPM download → report ACKs → short install lease
+→ root-only journal → independent updater unit → RPM apply/API version verification → result replay
 Host resource samples + policy/agent status → heartbeat → central agent status
 Retained evidence + effective agent policy → read-only operator summary → authenticated monitoring view
 ```
@@ -197,6 +217,10 @@ auditd dispatcher
 ## Architecture Notes
 
 - The CLI never opens the SQLite database directly.
+- The updater also avoids the daemon database. It rechecks current public
+  enrollment trust through a root-authorized Unix API and keeps its bounded
+  journal under a separate root-only directory. Existing heartbeat fields and
+  policy signatures remain unchanged. A source/dev build cannot apply updates.
 - Site configuration under `configs/hosts/`, live deployment/validation notes,
   build output, credentials and tool state are local-only and excluded from Git
   and shareable source archives.
@@ -251,6 +275,10 @@ auditd dispatcher
 - Approved policies and delivery ACK watermarks survive restarts; removal grants
   and recovery credentials are consumed transactionally with audit obligations.
   Direct root/kernel tampering cannot be prevented by these local controls.
+- Managed RPM updates require a manually bootstrapped updater-capable package,
+  signed enrollment-bound plan and short apply lease. The daemon reports its
+  running build separately from installed RPM metadata. Interrupted applies
+  reconcile without another RPM transaction; package rollback is not automatic.
 - Process integrity and TPM attestation remain deferred. The deployed host stays
   in observe mode; SIGTERM is experimental, explicit opt-in and conservatively
   refuses unprovable process identity. It cannot prevent exec or guarantee exit.

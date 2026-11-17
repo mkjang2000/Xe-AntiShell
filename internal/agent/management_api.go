@@ -7,6 +7,7 @@ import (
 
 	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"xe-antishell/internal/storage"
+	"xe-antishell/internal/updates"
 )
 
 // ManagementAction is invoked only by the root-authorized Unix API. Secret
@@ -15,6 +16,12 @@ func (s *Service) ManagementAction(ctx context.Context, action string, input jso
 	switch action {
 	case "status":
 		return s.ManagedStatus(ctx)
+	case "update-identity":
+		state, err := s.store.ManagedState(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return updates.Identity{AgentID: state.AgentID, EnrollmentID: state.EnrollmentID, KeyID: state.PolicyKeyID, PublicKey: state.PolicyPublicKey}, nil
 	case "enroll":
 		var request struct {
 			URL          string `json:"url"`

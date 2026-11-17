@@ -34,6 +34,11 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("central request rejected (HTTP %d)", e.Code)
 }
 
+// A rejected update claim cannot become valid by replaying the same ready job.
+func (e *StatusError) UpdateClaimRejected() bool {
+	return e != nil && (e.Code == http.StatusConflict || e.Code == http.StatusGone || e.Code == http.StatusPreconditionFailed)
+}
+
 type Client struct {
 	base          url.URL
 	http          *http.Client

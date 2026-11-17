@@ -64,6 +64,7 @@ build_source_paths() (
     LICENSE THIRD_PARTY_NOTICES.md protocol/go.mod protocol/LICENSE
     configs/sentineld.yaml packaging/rpm/xe-antishell.spec
     packaging/systemd/sentineld.service packaging/systemd/sentinel-web.service
+    packaging/systemd/sentinel-updater.service
     packaging/audit/xe-antishell.conf
     packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf
     packaging/tetragon/sentineld.conf packaging/install_test.sh
@@ -79,7 +80,7 @@ build_source_paths() (
   [[ -n $(find third_party/licenses -type f \( -name '*.txt' -o -name '*.md' \) -print -quit) ]] || {
     build_fail 'The upstream license directory must contain license texts.'; return 1
   }
-  for path in .gitignore .gitattributes .release-files .releaseignore LICENSE.md COPYING NOTICE CHANGELOG.md CONTRIBUTING.md SECURITY.md Linux_Host_Security_Platform_Design_v0.1.md devdocs/analysis/managed-v1-operations.md devdocs/analysis/tetragon-installation.ko.md; do
+  for path in .gitignore .gitattributes .release-files .releaseignore LICENSE.md COPYING NOTICE CHANGELOG.md CONTRIBUTING.md SECURITY.md Linux_Host_Security_Platform_Design_v0.1.md devdocs/analysis/managed-v1-operations.md devdocs/analysis/tetragon-installation.ko.md devdocs/analysis/release-signing.ko.md; do
     [[ ! -L "$path" ]] || { build_fail "Source symlink is not allowed: $path"; return 1; }
     [[ ! -f "$path" ]] || printf '%s\0' "$path"
   done

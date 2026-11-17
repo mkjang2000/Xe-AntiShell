@@ -22,7 +22,7 @@ func (s *Service) startManagedWorkers(ctx context.Context) {
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		s.managedError("identity", "stored central identity is invalid")
 	}
-	for _, worker := range []func(context.Context){s.managedDeliveryLoop, s.managedHeartbeatLoop, s.managedPolicyLoop} {
+	for _, worker := range []func(context.Context){s.managedDeliveryLoop, s.managedHeartbeatLoop, s.managedPolicyLoop, s.managedUpdateLoop} {
 		s.producerWG.Add(1)
 		go func(run func(context.Context)) { defer s.producerWG.Done(); run(ctx) }(worker)
 	}

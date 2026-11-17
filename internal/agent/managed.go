@@ -240,7 +240,7 @@ func (s *Service) managedError(operation, message string) {
 		runtime.operationErrors[operation] = message
 	}
 	var active []string
-	for _, name := range []string{"identity", "enrollment", "delivery", "heartbeat", "policy", "history"} {
+	for _, name := range []string{"identity", "enrollment", "delivery", "heartbeat", "policy", "history", "update"} {
 		if message := runtime.operationErrors[name]; message != "" {
 			active = append(active, message)
 		}

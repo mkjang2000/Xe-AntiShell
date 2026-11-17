@@ -26,7 +26,7 @@ for test_path in go.mod go.sum Makefile install.sh README.md Project_tree.md \
   protocol/managed/protocol.go protocol/managed/protocol_test.go protocol/model/model.go \
   protocol/managed/testdata/legacy-policy.json \
   configs/sentineld.yaml packaging/rpm/xe-antishell.spec \
-  packaging/systemd/sentineld.service packaging/systemd/sentinel-web.service \
+  packaging/systemd/sentineld.service packaging/systemd/sentinel-web.service packaging/systemd/sentinel-updater.service \
   packaging/audit/xe-antishell.conf \
   packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf \
   packaging/tetragon/sentineld.conf packaging/install_test.sh \
@@ -37,7 +37,7 @@ for test_path in go.mod go.sum Makefile install.sh README.md Project_tree.md \
   internal/webpanel/assets/index.html internal/webpanel/assets/app.js \
   scripts/check-source.py scripts/build-rpm.sh testdata/events/replay.jsonl \
   configs/examples/monitor.yaml devdocs/plans/install.md devdocs/reviews/security.md \
-  devdocs/analysis/managed-v1-operations.md Linux_Host_Security_Platform_Design_v0.1.md; do
+  devdocs/analysis/managed-v1-operations.md devdocs/analysis/release-signing.ko.md Linux_Host_Security_Platform_Design_v0.1.md; do
   mkdir -p -- "$XEAS_BUILD_ROOT/$(dirname -- "$test_path")"
   printf 'maintained fixture\n' > "$XEAS_BUILD_ROOT/$test_path"
 done
@@ -156,6 +156,8 @@ with tarfile.open(sys.argv[1], 'r:gz') as archive:
     assert root+'packaging/systemd/sentinel-central.service' not in names
     assert root+'packaging/install-wizard.sh' in names
     assert root+'packaging/install_wizard_test.py' in names
+    assert root+'devdocs/analysis/release-signing.ko.md' in names
+    assert root+'packaging/systemd/sentinel-updater.service' in names
     for expected in ['packaging/install-tetragon.sh','packaging/install_tetragon_test.sh','packaging/tetragon/setup.py','packaging/tetragon/setup_config.py','packaging/tetragon/test_setup.py']:
         assert root+expected in names, expected
     for member in archive.getmembers():

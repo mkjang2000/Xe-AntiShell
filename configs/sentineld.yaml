@@ -1,5 +1,10 @@
 version: 1
 
+# Acts only after enrollment on a supported RPM/systemd installation.
+# Set false to refuse new remote updates; prior results still report to central.
+updates:
+  enabled: true
+
 agent:
   id: ""
   socket_path: /run/xe-antishell/sentineld.sock

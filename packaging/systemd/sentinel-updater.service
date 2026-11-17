@@ -1,0 +1,17 @@
+[Unit]
+Description=Xe-AntiShell authorized package update
+After=local-fs.target
+ConditionPathExists=/var/lib/xe-antishell/updates/job.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/sbin/sentinel-updater
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+TimeoutStartSec=420s
+TimeoutStopSec=20s
+KillMode=control-group
