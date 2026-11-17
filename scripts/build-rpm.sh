@@ -66,7 +66,8 @@ build_source_paths() (
     packaging/systemd/sentineld.service packaging/systemd/sentinel-web.service
     packaging/audit/xe-antishell.conf
     packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf
-    packaging/tetragon/sentineld.conf packaging/install_test.sh)
+    packaging/tetragon/sentineld.conf packaging/install_test.sh
+    packaging/install-wizard.sh packaging/install_wizard_test.py)
   for path in "${required[@]}"; do
     [[ -f "$path" && ! -L "$path" ]] || { build_fail "Required source file is missing or a symlink: $path"; return 1; }
     printf '%s\0' "$path"

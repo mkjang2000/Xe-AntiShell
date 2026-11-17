@@ -73,6 +73,8 @@ func runManaged(ctx context.Context, client *localapi.Client, args []string, std
 	var input any = struct{}{}
 	action := args[0]
 	switch action {
+	case "enroll-code":
+		return runEnrollCode(ctx, client, args[1:], stdout, stderr)
 	case "enroll":
 		central := command.String("central", "", "HTTPS central URL")
 		agentID := command.String("agent-id", "", "unique agent ID")

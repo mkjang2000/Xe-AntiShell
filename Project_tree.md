@@ -11,7 +11,7 @@
 - Local Database: SQLite (pure-Go driver, WAL mode)
 - Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`
 - Central Project: https://github.com/mkjang2000/Xe-AntiShell-Central
-- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.1.0`
+- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.1.1`
 - Build Command: `make build`, `make static`, or `make rpm`
 - Run Command: `build/sentineld --config configs/sentineld.yaml`
 - Test Command: `make verify` (source, shell/UI, vet, race tests, static build)
@@ -51,6 +51,8 @@ Xe-AntiShell/
 │   └── sentineld.yaml             # Example production configuration
 ├── packaging/
 │   ├── install_test.sh            # Installer command-mock checks without host mutations
+│   ├── install-wizard.sh          # No-argument Korean TTY setup and hidden installation-code input
+│   ├── install_wizard_test.py     # Isolated PTY interaction/privacy checks
 │   ├── audit/                     # Opt-in audit plugin and exec-rule templates
 │   ├── rpm/                       # RPM package skeleton
 │   ├── systemd/                   # Generic agent/web/central units
@@ -89,7 +91,7 @@ Xe-AntiShell/
 ├── README.md
 ├── LICENSE                       # Project MIT license
 ├── THIRD_PARTY_NOTICES.md         # Included dependencies and external collector boundaries
-├── install.sh                    # Source/local-RPM setup and optional central enrollment
+├── install.sh                    # Scripted setup or a no-argument TTY installation wizard
 ├── Makefile
 ├── go.mod
 └── go.sum

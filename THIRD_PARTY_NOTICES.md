@@ -36,7 +36,7 @@ Go module cache, dependency tests, generators, or upstream development tools.
 ## Go modules
 
 The agent additionally pins the project's own shared
-[`github.com/mkjang2000/Xe-AntiShell/protocol v0.1.0`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.0/protocol)
+[`github.com/mkjang2000/Xe-AntiShell/protocol v0.1.1`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.1/protocol)
 module, under the [same project MIT terms](LICENSE). It has no third-party module
 dependencies; its runtime/standard-library notices are covered below.
 

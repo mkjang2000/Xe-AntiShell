@@ -22,13 +22,30 @@ rejects `--enable-web` on older managers before installing a package.
 
 Choose one installation path from a reviewed checkout:
 
+With no arguments on a terminal, the installer walks through package selection,
+standalone or central enrollment, optional local monitoring, and a final review:
+
+```bash
+sudo ./install.sh
+```
+
+Keep `packaging/install-wizard.sh` beside the installer in its original directory
+structure. The installation bundle includes this helper. For central enrollment,
+paste the complete installation code issued by the authenticated central console.
+Input stays hidden. That code carries the central URL, agent ID and pinned public
+CA, so no separate CA/token files or recovery path need to be entered. The agent
+creates and preserves `/root/xe-antishell-offline-recovery` automatically; copy it
+to protected storage outside the monitored host after enrollment.
+
+The existing explicit options remain available for unattended setup:
+
 ```bash
 # Build a local RPM and install the agent and monitoring panel.
 sudo ./install.sh --build --enable-web
 
 # Or build once and install the resulting RPM on another compatible host.
 make rpm
-sudo ./install.sh --rpm ./dist/rpm/xe-antishell-0.1.0-16.el9.x86_64.rpm --enable-web
+sudo ./install.sh --rpm ./dist/rpm/xe-antishell-0.1.0-17.el9.x86_64.rpm --enable-web
 ```
 
 The RPM filename depends on the build host's distribution and architecture.
@@ -52,7 +69,22 @@ An available agent API confirms startup; it does not confirm event collection.
 Check `sudo sentinel capabilities` and the panel's collection status, then
 validate detection with a controlled test before considering automatic response.
 
-For central enrollment, supply **all five** enrollment options. Keep the token
+For complete-code enrollment without prompts, save the code in a root-owned
+0600 file and run:
+
+```bash
+sudo ./install.sh --rpm ./agent.rpm \
+  --enrollment-file /root/xe-installation-code
+```
+
+`--recovery-file` can override the automatic default. Do not combine
+`--enrollment-file` with the legacy central URL/ID/CA/token options. The encoded
+installation code is a credential; do not paste it into command arguments or logs.
+It carries the trusted public CA before the first network credential is sent,
+and normal certificate-chain and hostname checks remain enabled. Agent private
+keys and offline recovery plaintext are generated locally rather than downloaded.
+
+For legacy central enrollment, supply **all five** enrollment options. Keep the token
 in a root-owned file with owner-only permissions, and provide a CA obtained
 through a trusted channel:
 
@@ -267,7 +299,7 @@ The central service has its own project, installer, RPM and service account.
 The agent package installs only `sentineld`, `sentinel` and `sentinel-web`.
 Agent updates do not restart central, and central updates do not restart the
 agent. Both use the published
-[`protocol v0.1.0`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.0/protocol)
+[`protocol v0.1.1`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.1/protocol)
 module; JSON schemas, signature domains, stored identities and approved
 policies are unchanged by project separation.
 
@@ -275,8 +307,8 @@ For same-host validation, central defaults to HTTPS `127.0.0.1:9443` and a
 credentialed operator API on `127.0.0.1:9444`. A remote-agent deployment needs a
 server certificate for its actual access name, an explicitly configured
 non-loopback HTTPS listener and separately trusted CA delivery. The operator
-API remains loopback-only. Current central administration is an API; a fleet
-web panel, PostgreSQL, RBAC and certificate renewal remain future work.
+API remains loopback-only. The central project provides its own authenticated
+fleet console; PostgreSQL, RBAC and automatic certificate renewal remain future work.
 Preserve the offline recovery file outside the monitored host.
 
 ### Migrating an earlier bundled installation

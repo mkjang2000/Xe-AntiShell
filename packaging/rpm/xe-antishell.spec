@@ -1,6 +1,6 @@
 Name:           xe-antishell
 Version:        0.1.0
-Release:        16%{?dist}
+Release:        17%{?dist}
 Summary:        Standalone Linux host security monitoring agent
 License:        MIT AND Apache-2.0 AND BSD-3-Clause AND BSD-2-Clause AND BSD-1-Clause AND SunPro
 URL:            https://github.com/mkjang2000/Xe-AntiShell
@@ -67,6 +67,9 @@ fi
 %systemd_postun_with_restart sentinel-web.service
 
 %changelog
+* Tue Nov 17 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-17
+- Add step-by-step terminal setup while retaining scripted installation options
+- Enroll from a single installation code with pinned CA and automatic local recovery preparation
 * Tue Nov 17 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-16
 - Package only the host agent, local CLI and local monitoring panel
 - Transfer central binaries and service ownership to xe-antishell-central

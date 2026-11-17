@@ -30,6 +30,7 @@ for test_path in go.mod go.sum Makefile install.sh README.md Project_tree.md \
   packaging/audit/xe-antishell.conf \
   packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf \
   packaging/tetragon/sentineld.conf packaging/install_test.sh \
+  packaging/install-wizard.sh packaging/install_wizard_test.py \
   cmd/sentineld/main.go internal/model/model.go internal/storage/schema.sql \
   internal/webpanel/assets/index.html internal/webpanel/assets/app.js \
   scripts/check-source.py scripts/build-rpm.sh testdata/events/replay.jsonl \

@@ -9,16 +9,23 @@ XEAS_WEB_PASSWORD_FILE=/root/xe-antishell-web-initial-password.txt
 XEAS_CENTRAL_STATE_DIR=/var/lib/xe-antishell-central
 XEAS_INSTALL_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 XEAS_BUILD_SCRIPT=$XEAS_INSTALL_ROOT/scripts/build-rpm.sh
+XEAS_WIZARD_SCRIPT=$XEAS_INSTALL_ROOT/packaging/install-wizard.sh
+XEAS_RECOVERY_FILE=/root/xe-antishell-offline-recovery
 
 usage() {
   cat <<'USAGE'
 Usage: sudo ./install.sh (--rpm PATH | --build) [OPTIONS]
+       sudo ./install.sh                 Korean interactive setup on a terminal
 
 Choose one package source:
   --rpm PATH              Local xe-antishell RPM (no package download)
   --build                 Build this source checkout with scripts/build-rpm.sh
 
-Optional central enrollment (supply all five together):
+Optional central enrollment with an installation code:
+  --enrollment-file PATH  Root-owned owner-only installation code file
+  --recovery-file PATH    Offline recovery file (default: /root/xe-antishell-offline-recovery)
+
+Legacy central enrollment (supply all five together; cannot mix with --enrollment-file):
   --central HTTPS_URL     Trusted central server URL
   --agent-id ID           Unique agent identifier
   --ca-file PATH          Already trusted central CA certificate
@@ -187,19 +194,36 @@ enable_web() {
   printf 'Web panel enabled. Initial password, when newly created: %s\n' "$XEAS_WEB_PASSWORD_FILE"
 }
 
+cleanup_install() {
+  if [[ -n "${wizard_code_file:-}" ]]; then rm -f -- "$wizard_code_file" || :; fi
+  if [[ -n "${build_directory:-}" ]]; then rm -rf -- "$build_directory" || :; fi
+}
+
 main() (
-  local rpm_path='' central_url='' agent_id='' ca_file='' token_file='' recovery_file=''
+  local rpm_path='' central_url='' agent_id='' ca_file='' token_file='' recovery_file='' enrollment_file=''
   local with_web=false with_build=false option value supplied=0 package_name recovery_parent candidate_nevra installed_nevra manager_version
-  local build_directory=''
+  local build_directory='' wizard_code_file='' interactive=false
   local nevra_format='%{NAME}-%{EPOCH}:%{VERSION}-%{RELEASE}.%{ARCH}'
-  trap 'if [[ -n "${build_directory:-}" ]]; then rm -rf -- "$build_directory"; fi' EXIT
+  trap cleanup_install EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  if (( $# == 0 )); then
+    [[ -t 0 && -t 1 ]] || { fail '인자 없는 설치는 터미널에서 실행하세요. 자동 설치는 --rpm 또는 --build 옵션과 --help를 사용하세요.'; return 1; }
+    require_root || return 1
+    umask 077
+    check_regular_file "$XEAS_WIZARD_SCRIPT" || return 1
+    source "$XEAS_WIZARD_SCRIPT" || return 1
+    run_install_wizard || return 1
+    interactive=true
+  fi
   while (( $# )); do
     option=$1
     case "$option" in
       -h|--help) usage; return 0 ;;
       --enable-web) with_web=true; shift ;;
       --build) with_build=true; shift ;;
-      --rpm|--central|--agent-id|--ca-file|--token-file|--recovery-file)
+      --rpm|--central|--agent-id|--ca-file|--token-file|--recovery-file|--enrollment-file)
         if (( $# < 2 )) || [[ -z "$2" || "$2" == --* ]]; then
           fail "Missing value for $option"; return 1
         fi
@@ -208,6 +232,7 @@ main() (
           --rpm) rpm_path=$value ;; --central) central_url=$value ;;
           --agent-id) agent_id=$value ;; --ca-file) ca_file=$value ;;
           --token-file) token_file=$value ;; --recovery-file) recovery_file=$value ;;
+          --enrollment-file) enrollment_file=$value ;;
         esac
         shift 2 ;;
       *) fail "Unknown option: $option"; return 1 ;;
@@ -216,12 +241,18 @@ main() (
   if [[ "$with_build" == true && -n "$rpm_path" ]] || [[ "$with_build" == false && -z "$rpm_path" ]]; then
     fail 'Choose exactly one of --rpm PATH or --build. Use --help for examples.'; return 1
   fi
-  for value in "$central_url" "$agent_id" "$ca_file" "$token_file" "$recovery_file"; do
+  for value in "$central_url" "$agent_id" "$ca_file" "$token_file"; do
     if [[ -n "$value" ]]; then (( supplied+=1 )); fi
   done
-  if (( supplied != 0 && supplied != 5 )); then
-    fail 'Central enrollment requires all five of --central --agent-id --ca-file --token-file --recovery-file.'
-    return 1
+  if [[ -n "$enrollment_file" ]]; then
+    (( supplied == 0 )) || { fail '--enrollment-file cannot be mixed with --central --agent-id --ca-file or --token-file.'; return 1; }
+    recovery_file=${recovery_file:-$XEAS_RECOVERY_FILE}
+  else
+    if [[ -n "$recovery_file" ]]; then (( supplied+=1 )); fi
+    if (( supplied != 0 && supplied != 5 )); then
+      fail 'Central enrollment requires all five of --central --agent-id --ca-file --token-file --recovery-file.'
+      return 1
+    fi
   fi
   require_root || return 1
   umask 077
@@ -233,6 +264,10 @@ main() (
   else
     check_regular_file "$rpm_path" || return 1
   fi
+  if [[ -n "$enrollment_file" ]]; then
+    check_private_file "$enrollment_file" || return 1
+    check_file_size "$enrollment_file" 16384 || return 1
+  fi
   if (( supplied )); then
     [[ "$central_url" =~ ^https://[^/?#@[:space:]]+/?$ ]] || { fail '--central must be an HTTPS origin without credentials, query, or fragment.'; return 1; }
     [[ "$agent_id" =~ ^[a-zA-Z0-9_.:-]{1,128}$ ]] || { fail 'Invalid --agent-id.'; return 1; }
@@ -240,6 +275,8 @@ main() (
     check_file_size "$ca_file" 65536 || return 1
     check_private_file "$token_file" || return 1
     check_file_size "$token_file" 4096 || return 1
+  fi
+  if (( supplied )) || [[ -n "$enrollment_file" ]]; then
     if [[ -e "$recovery_file" || -L "$recovery_file" ]]; then
       check_private_file "$recovery_file" || return 1
       check_file_size "$recovery_file" 4096 || return 1
@@ -252,7 +289,7 @@ main() (
   if [[ "$with_web" == true ]]; then check_web_preflight "$manager_version" || return 1; fi
   installed_nevra=$(rpm -q --queryformat "$nevra_format" xe-antishell 2>/dev/null) || installed_nevra=''
   check_legacy_central_preflight "$installed_nevra" || return 1
-  detect_os
+  if [[ "$interactive" == false ]]; then detect_os; fi
   if [[ "$with_build" == true ]]; then
     build_directory=$(mktemp -d /tmp/xeas-install-build.XXXXXX) || return 1
     printf 'Building the supplied source checkout before installing packages.\n'
@@ -278,7 +315,11 @@ main() (
   systemctl enable --now sentineld.service || return 1
   require_command sentinel || return 1
   wait_for_agent || return 1
-  if (( supplied )); then
+  if [[ -n "$enrollment_file" ]]; then
+    printf '보호된 설치 코드 파일로 중앙 서버에 등록합니다.\n'
+    sentinel managed enroll-code --code-file "$enrollment_file" --recovery-file "$recovery_file" || return 1
+    printf '비상 제거에 필요한 복구 파일을 이 호스트 외부에 안전하게 백업하세요: %s\n' "$recovery_file"
+  elif (( supplied )); then
     printf 'Enrolling with the central server using protected file inputs.\n'
     sentinel managed enroll --central "$central_url" --agent-id "$agent_id" \
       --ca-file "$ca_file" --token-file "$token_file" --recovery-file "$recovery_file" || return 1

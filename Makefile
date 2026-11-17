@@ -45,9 +45,10 @@ format-check:
 		if [ -n "$$files" ]; then printf 'Run gofmt on:\n%s\n' "$$files" >&2; exit 1; fi
 
 test-scripts:
-	@for script in install.sh packaging/install_test.sh scripts/*.sh; do bash -n "$$script" || exit 1; done
+	@for script in install.sh packaging/*.sh scripts/*.sh; do bash -n "$$script" || exit 1; done
 	@for script in internal/webpanel/assets/*.js; do node --check "$$script" || exit 1; done
 	bash packaging/install_test.sh
+	PYTHONDONTWRITEBYTECODE=1 python3 packaging/install_wizard_test.py
 	bash scripts/build_rpm_test.sh
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p check_source_test.py
 

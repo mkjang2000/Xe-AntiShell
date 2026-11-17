@@ -9,7 +9,9 @@ calls=$test_root/calls
 rpm_file="$test_root/local package.rpm"
 ca_file=$test_root/ca.pem
 token_file=$test_root/token
+code_file=$test_root/installation-code
 recovery_file=$test_root/recovery
+XEAS_RECOVERY_FILE=$test_root/default-recovery
 XEAS_WEB_AUTH_FILE=$test_root/web-auth.json
 XEAS_WEB_PASSWORD_FILE=$test_root/web-password.txt
 XEAS_CENTRAL_STATE_DIR=$test_root/central-state
@@ -37,7 +39,8 @@ printf 'ID=rocky\nVERSION_ID="9.6"\n' > "$XEAS_OS_RELEASE_FILE"
 printf 'local RPM fixture\n' > "$rpm_file"
 printf 'CA fixture\n' > "$ca_file"
 printf 'SECRET_TOKEN_NEVER_PRINT\n' > "$token_file"
-chmod 0600 "$token_file"
+printf 'xeas1.SECRET_INSTALLATION_CODE_NEVER_PRINT\n' > "$code_file"
+chmod 0600 "$token_file" "$code_file"
 
 # Do not require host root/group setup for this command-mock test.
 require_root() { return 0; }
@@ -93,7 +96,7 @@ sleep() { :; }
 sentinel() {
   printf 'sentinel %s\n' "$*" >> "$calls"
   if [[ "$1" == status ]]; then [[ "$mock_agent_ready" == true ]]; return; fi
-  [[ "$1 $2" == 'managed enroll' ]] || return 1
+  [[ "$1 $2" == 'managed enroll' || "$1 $2" == 'managed enroll-code' ]] || return 1
   [[ "$mock_enroll_failure" == false ]] || return 1
   if [[ ! -e "$recovery_file" ]]; then printf 'PRESERVED_RECOVERY_CODE\n' > "$recovery_file"; chmod 0600 "$recovery_file"; fi
 }
@@ -115,7 +118,8 @@ assert_no_host_mutations() {
 assert_no_secrets() {
   local output
   output=$(< "$test_root/stdout"); output+=$(< "$test_root/stderr")
-  [[ "$output" != *'SECRET_TOKEN_NEVER_PRINT'* && "$output" != *'PASSWORD_NEVER_PRINT'* && "$output" != *'PRESERVED_RECOVERY_CODE'* ]]
+  output+=$(< "$calls")
+  [[ "$output" != *'SECRET_TOKEN_NEVER_PRINT'* && "$output" != *'SECRET_INSTALLATION_CODE_NEVER_PRINT'* && "$output" != *'PASSWORD_NEVER_PRINT'* && "$output" != *'PRESERVED_RECOVERY_CODE'* ]]
 }
 
 expect_failure() {
@@ -151,6 +155,46 @@ expect_failure --rpm "$rpm_file" "${enroll[@]}" --token-file "$empty_file"
 expect_failure --rpm "$rpm_file" "${enroll[@]}" --ca-file "$empty_file"
 expect_failure --build "${enroll[@]}" --token-file "$empty_file"
 [[ "$(< "$calls")" != *'build --output-dir'* ]]
+
+# Installation-code enrollment is exclusive, private and bounded before installation.
+expect_failure --rpm "$rpm_file" --enrollment-file
+expect_failure --rpm "$rpm_file" --enrollment-file "$code_file" "${enroll[@]}"
+for old_option in --central --agent-id --ca-file --token-file; do
+  expect_failure --rpm "$rpm_file" --enrollment-file "$code_file" "$old_option" conflict
+done
+expect_failure --rpm "$rpm_file" --recovery-file "$recovery_file"
+expect_failure --rpm "$rpm_file" --enrollment-file "$empty_file"
+chmod 0644 "$code_file"
+expect_failure --rpm "$rpm_file" --enrollment-file "$code_file"
+chmod 0600 "$code_file"
+mock_owner=1000
+expect_failure --rpm "$rpm_file" --enrollment-file "$code_file"
+mock_owner=0
+ln -s "$code_file" "$test_root/code-link"
+expect_failure --rpm "$rpm_file" --enrollment-file "$test_root/code-link"
+printf '%016385d' 0 > "$test_root/oversized-code"
+chmod 0600 "$test_root/oversized-code"
+expect_failure --rpm "$rpm_file" --enrollment-file "$test_root/oversized-code"
+expect_failure --build --enrollment-file "$test_root/oversized-code"
+[[ "$(< "$calls")" != *'build --output-dir'* ]]
+expect_failure --rpm "$rpm_file" --enrollment-file "$code_file" --recovery-file "$test_root/missing/recovery"
+
+: > "$calls"
+main --rpm "$rpm_file" --enrollment-file "$code_file" > "$test_root/stdout" 2> "$test_root/stderr"
+trace=$(< "$calls")
+[[ "$trace" == *"sentinel managed enroll-code --code-file $code_file --recovery-file $XEAS_RECOVERY_FILE"* ]]
+[[ "$(< "$XEAS_RECOVERY_FILE")" == PRESERVED_RECOVERY_CODE && -f "$code_file" ]]
+assert_no_secrets
+: > "$calls"
+main --rpm "$rpm_file" --enrollment-file "$code_file" --recovery-file "$recovery_file" > "$test_root/stdout" 2> "$test_root/stderr"
+[[ "$(< "$calls")" == *"--recovery-file $recovery_file"* && -f "$code_file" ]]
+assert_no_secrets
+printf '%016384d' 0 > "$test_root/boundary-code"
+chmod 0600 "$test_root/boundary-code"
+: > "$calls"
+main --rpm "$rpm_file" --enrollment-file "$test_root/boundary-code" > "$test_root/stdout" 2> "$test_root/stderr"
+[[ "$(< "$calls")" == *'sentinel managed enroll-code'* ]]
+assert_no_secrets
 
 # Web compatibility and partial credential failures are rejected before RPM changes.
 mock_systemd_version=219
