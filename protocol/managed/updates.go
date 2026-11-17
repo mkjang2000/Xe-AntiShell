@@ -109,7 +109,7 @@ type UpdateReport struct {
 var rpmComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+~^]{0,127}$`)
 var updateBuildVersion = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+~^:-]{0,127}$`)
 var updateHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
-var elRelease = regexp.MustCompile(`(?:^|\.)el(7|8|9|10)(?:\.|$)`)
+var elRelease = regexp.MustCompile(`(?:^|\.)el(7|8|9|10)(?:[._]|$)`)
 
 func (p RPMPackage) Validate() error {
 	if p.Name != "xe-antishell" || p.Epoch > math.MaxUint32 || !rpmComponent.MatchString(p.Version) || !rpmComponent.MatchString(p.Release) || p.Arch != "x86_64" {

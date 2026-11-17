@@ -171,4 +171,11 @@ func TestUpdateRPMVersionSyntaxAndEpochBuildIdentity(t *testing.T) {
 	if got := pack.RunningVersion(); got != "2:1.0~rc1^snapshot+2-23.el9.x86_64" || !validBuildVersion(got) {
 		t.Fatal("epoch/prerelease build identity was lost")
 	}
+	for _, suffix := range []string{"23.el9", "23.el9_8", "23.el9_8.1"} {
+		release := updateFixture().Release
+		release.Package.Release = suffix
+		if err := release.Validate(); err != nil {
+			t.Fatalf("standard EL point-release suffix rejected: %v", err)
+		}
+	}
 }
