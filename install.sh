@@ -218,6 +218,18 @@ cleanup_install() {
   if [[ -n "${build_directory:-}" ]]; then rm -rf -- "$build_directory" || :; fi
 }
 
+run_install() {
+  local saved_signal_traps exit_status
+  saved_signal_traps=$(trap -p INT TERM HUP)
+  # Keep the calling shell alive until main's subshell finishes EXIT cleanup.
+  trap ':' INT TERM HUP
+  main "$@"
+  exit_status=$?
+  trap - INT TERM HUP
+  eval "$saved_signal_traps"
+  return "$exit_status"
+}
+
 main() (
   local rpm_path='' central_url='' agent_id='' ca_file='' token_file='' recovery_file='' enrollment_file=''
   local with_web=false with_build=false with_tetragon=false tetragon_only=false tetragon_archive='' tetragon_python=''
@@ -377,4 +389,4 @@ main() (
   printf 'Audit-rule activation and detection accuracy validation require separate host review.\n'
 )
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then run_install "$@"; fi

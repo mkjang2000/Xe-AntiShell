@@ -76,6 +76,16 @@ systemctl() {
 }
 sleep() { :; }
 chown() { printf 'chown %s\n' "$*" >> "$calls"; }
+stty() {
+  local restoring=false
+  if [[ "${XEAS_TEST_SLOW_TERMINAL_RESTORE:-0}" == 1 && "$1" != -g && "$1" != -echo ]]; then
+    restoring=true
+    printf 'terminal restore started\n' >> "$calls"
+    command sleep 0.15
+  fi
+  command stty "$@" || return 1
+  if [[ "$restoring" == true ]]; then printf 'terminal restore completed\n' >> "$calls"; fi
+}
 check_tetragon_preflight() { printf 'tetragon preflight\n' >> "$calls"; }
 install_tetragon() { printf 'tetragon install\n' >> "$calls"; }
 sentinel() {
@@ -95,7 +105,7 @@ sentinel-web() {
   printf 'LOCAL_PASSWORD_FIXTURE\n' > "$XEAS_WEB_PASSWORD_FILE"
   chmod 0600 "$XEAS_WEB_AUTH_FILE" "$XEAS_WEB_PASSWORD_FILE"
 }
-main
+run_install
 '''
 
 
@@ -131,13 +141,14 @@ def assert_no_mutations(work):
         assert mutation not in calls, f"Cancellation reached a host mutation: {mutation}"
 
 
-def run_terminal(work, exchanges, expected=0, terminate=None, enrollment_failure=False, allexport=False):
+def run_terminal(work, exchanges, expected=0, terminate=None, enrollment_failure=False, allexport=False, slow_terminal_restore=False):
     master, slave = pty.openpty()
     original_terminal = termios.tcgetattr(slave)
     env = dict(os.environ)
     # An inherited exported name must never cause a pasted code to be exported.
     env["installation_code"] = "previous-nonsecret-value"
     env["XEAS_TEST_ENROLL_FAIL"] = "1" if enrollment_failure else "0"
+    env["XEAS_TEST_SLOW_TERMINAL_RESTORE"] = "1" if slow_terminal_restore else "0"
     process = subprocess.Popen(
         ["bash", *(["-a"] if allexport else []), str(work / "harness.sh"), str(REPO), str(work)],
         stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True,
@@ -172,7 +183,8 @@ def run_terminal(work, exchanges, expected=0, terminate=None, enrollment_failure
             os.killpg(process.pid, terminate)
         drain_until()
         result = process.wait(timeout=2)
-        assert result == expected or (terminate is not None and result != 0), f"Unexpected installer exit {result}: {output.decode(errors='replace')}"
+        wanted = 128 + terminate if terminate is not None else expected
+        assert result == wanted, f"Unexpected installer exit {result}, expected {wanted}: {output.decode(errors='replace')}"
         assert termios.tcgetattr(slave) == original_terminal, "Original terminal settings were not restored"
         text = output.decode(errors="replace")
         assert SECRET not in text and "LOCAL_PASSWORD_FIXTURE" not in text and "DURABLE_RECOVERY_FIXTURE" not in text, "A secret reached terminal output"
@@ -191,6 +203,21 @@ def run_terminal(work, exchanges, expected=0, terminate=None, enrollment_failure
 
 
 def main():
+    wrapper_check = r'''
+set -euo pipefail
+source "$1/install.sh"
+main() ( return "$1"; )
+trap 'true' INT
+trap 'exit 87' TERM
+trap 'exit 88' HUP
+saved=$(trap -p INT TERM HUP)
+run_install 0
+[[ "$(trap -p INT TERM HUP)" == "$saved" ]]
+if run_install 7; then exit 1; else result=$?; fi
+[[ "$result" == 7 && "$(trap -p INT TERM HUP)" == "$saved" ]]
+'''
+    subprocess.run(["bash", "-c", wrapper_check, "wrapper-check", str(REPO)], check=True)
+
     with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
         work = fixture(directory)
         result = subprocess.run(["bash", str(work / "harness.sh"), str(REPO), str(work)], input="", capture_output=True, text=True, check=False)
@@ -264,6 +291,15 @@ def main():
                 run_terminal(work, [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), *interrupted_step], terminate=interrupt)
                 assert_no_mutations(work)
                 assert (work / "recovery").read_text() == "PRESERVED_RECOVERY\n"
+
+    # A group signal must not let the outer installer exit before main restores
+    # the terminal, even when the restoring stty child is scheduled slowly.
+    for interrupt in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
+            work = fixture(directory)
+            run_terminal(work, [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, None)], terminate=interrupt, slow_terminal_restore=True)
+            assert "terminal restore completed\n" in (work / "calls").read_text()
+            assert_no_mutations(work)
 
     with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
         work = fixture(directory)

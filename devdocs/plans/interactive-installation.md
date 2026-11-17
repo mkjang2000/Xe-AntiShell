@@ -48,7 +48,8 @@ or URL, redirected/incorrect-host TLS, mismatched IDs and reused credentials for
 different identities. Preserve existing config/credentials/recovery on retries;
 network failure must not erase the recovery code or pending CSR. Do not print
 input code in parse errors. Installation success remains distinct from verified
-runtime collection. No auto-enforcement or automatic Tetragon activation.
+runtime collection. No auto-enforcement. Optional Tetragon setup is an explicit
+choice described in [the collector installation plan](tetragon-installation.md).
 
 # Validation
 
@@ -58,3 +59,16 @@ secret suppression, optional panel, old flags); central issuance/CA/expiry/secre
 privacy and browser copy/download; full Go/JS/source/script checks and independent
 multi-agent enrollment. Build/install/replay smoke in Rocky10 userspace, followed
 by live central rollout preserving all existing identities and observe policies.
+
+# Signal cleanup follow-up
+
+The script entry keeps the calling Bash alive while the `main` subshell finishes
+EXIT cleanup. A process-group termination must not return control to the caller
+before terminal restoration and secret-file cleanup finish. PTY regression tests
+delay the restoring `stty` and require complete restoration plus exact INT/TERM/
+HUP exit statuses. Existing caller traps and umask remain scoped correctly.
+
+Two preexisting input/supervision limits remain separate: a signal sent only to
+the outer PID is not forwarded to the inner installer, and rare SIGINT timing
+can leave Bash's character read waiting under repeated stress. The group-cleanup
+correction does not claim to resolve those cases or change secret-input parsing.
