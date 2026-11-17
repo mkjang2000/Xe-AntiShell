@@ -28,6 +28,8 @@ type Policy struct {
 type DetectionPolicy struct {
 	Enabled              bool     `json:"enabled"`
 	ExtendedProcessRules bool     `json:"extended_process_rules,omitempty" yaml:"extended_process_rules,omitempty"`
+	PrivilegeRules       bool     `json:"privilege_rules,omitempty" yaml:"privilege_rules,omitempty"`
+	RootExecAlerts       string   `json:"root_exec_alerts,omitempty" yaml:"root_exec_alerts,omitempty"`
 	WebExecutables       []string `json:"web_executables"`
 	WebServices          []string `json:"web_services"`
 	Shells               []string `json:"shells"`
@@ -55,6 +57,9 @@ type SignedPolicy struct {
 }
 
 func (p Policy) Validate() error {
+	if p.Detection.RootExecAlerts != "" && (!p.Detection.PrivilegeRules || (p.Detection.RootExecAlerts != "suspicious" && p.Detection.RootExecAlerts != "all")) {
+		return errors.New("invalid privilege root execution alert mode")
+	}
 	if p.SchemaVersion != SchemaVersion || !validIdentifier(p.ID, 128) || !validIdentifier(p.AgentID, 128) || !validIdentifier(p.EnrollmentID, 160) || p.Revision < 1 || p.Revision > math.MaxInt64 {
 		return errors.New("invalid policy version or identity")
 	}
@@ -85,7 +90,7 @@ func (p Policy) Validate() error {
 		}
 		seen[key] = struct{}{}
 	}
-	if p.Detection.Enabled && (len(p.Detection.Shells) == 0 || len(p.Detection.WebExecutables)+len(p.Detection.WebServices) == 0) {
+	if p.Detection.Enabled && !p.Detection.PrivilegeRules && (len(p.Detection.Shells) == 0 || len(p.Detection.WebExecutables)+len(p.Detection.WebServices) == 0) {
 		return errors.New("enabled detection requires origins and shells")
 	}
 	switch p.Response.Mode {

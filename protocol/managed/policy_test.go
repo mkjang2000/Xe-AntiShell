@@ -244,3 +244,38 @@ func TestPublicKeyEncoding(t *testing.T) {
 		t.Fatal("invalid key accepted")
 	}
 }
+
+func TestPrivilegePolicyOptionalFieldsPreserveLegacyAndValidateMode(t *testing.T) {
+	p := DefaultPolicy("agent-test", "enrollment-test", 1, time.Now().UTC())
+	old, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(old, []byte("privilege_rules")) || bytes.Contains(old, []byte("root_exec_alerts")) {
+		t.Fatal("default policy changed legacy signed bytes")
+	}
+	p.Detection.PrivilegeRules = true
+	p.Detection.RootExecAlerts = "suspicious"
+	if err := p.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	p.Detection.WebExecutables = nil
+	p.Detection.WebServices = nil
+	p.Detection.Shells = nil
+	if err := p.Validate(); err != nil {
+		t.Fatal("global-only privilege policy rejected", err)
+	}
+	p.Detection.RootExecAlerts = "all"
+	if err := p.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	p.Detection.PrivilegeRules = false
+	if p.Validate() == nil {
+		t.Fatal("inactive privilege policy emitted new mode")
+	}
+	p.Detection.PrivilegeRules = true
+	p.Detection.RootExecAlerts = "unbounded"
+	if p.Validate() == nil {
+		t.Fatal("unknown mode accepted")
+	}
+}

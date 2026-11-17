@@ -88,25 +88,28 @@ const (
 // Process is a boot-scoped process observation. Unknown numeric credential
 // fields use -1 so that UID 0 remains unambiguous.
 type Process struct {
-	Key               string            `json:"key" yaml:"key"`
-	ParentKey         string            `json:"parent_key,omitempty" yaml:"parent_key,omitempty"`
-	ExecID            string            `json:"exec_id,omitempty" yaml:"exec_id,omitempty"`
-	PID               int               `json:"pid" yaml:"pid"`
-	PPID              int               `json:"ppid" yaml:"ppid"`
-	StartTime         time.Time         `json:"start_time" yaml:"start_time"`
-	Exe               string            `json:"exe" yaml:"exe"`
-	Argv              []string          `json:"argv,omitempty" yaml:"argv,omitempty"`
-	UID               int64             `json:"uid" yaml:"uid"`
-	EUID              int64             `json:"euid" yaml:"euid"`
-	GID               int64             `json:"gid" yaml:"gid"`
-	EGID              int64             `json:"egid" yaml:"egid"`
-	CWD               string            `json:"cwd,omitempty" yaml:"cwd,omitempty"`
-	OriginService     string            `json:"origin_service,omitempty" yaml:"origin_service,omitempty"`
-	LineageConfidence LineageConfidence `json:"lineage_confidence" yaml:"lineage_confidence"`
-	Complete          bool              `json:"complete" yaml:"complete"`
-	FirstSeen         time.Time         `json:"first_seen" yaml:"first_seen"`
-	LastSeen          time.Time         `json:"last_seen" yaml:"last_seen"`
-	ExitedAt          *time.Time        `json:"exited_at,omitempty" yaml:"exited_at,omitempty"`
+	Key               string              `json:"key" yaml:"key"`
+	ParentKey         string              `json:"parent_key,omitempty" yaml:"parent_key,omitempty"`
+	ExecID            string              `json:"exec_id,omitempty" yaml:"exec_id,omitempty"`
+	PID               int                 `json:"pid" yaml:"pid"`
+	TID               int                 `json:"tid,omitempty" yaml:"tid,omitempty"`
+	Credentials       *CredentialSnapshot `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	ExecPrivileges    *ExecPrivileges     `json:"exec_privileges,omitempty" yaml:"exec_privileges,omitempty"`
+	PPID              int                 `json:"ppid" yaml:"ppid"`
+	StartTime         time.Time           `json:"start_time" yaml:"start_time"`
+	Exe               string              `json:"exe" yaml:"exe"`
+	Argv              []string            `json:"argv,omitempty" yaml:"argv,omitempty"`
+	UID               int64               `json:"uid" yaml:"uid"`
+	EUID              int64               `json:"euid" yaml:"euid"`
+	GID               int64               `json:"gid" yaml:"gid"`
+	EGID              int64               `json:"egid" yaml:"egid"`
+	CWD               string              `json:"cwd,omitempty" yaml:"cwd,omitempty"`
+	OriginService     string              `json:"origin_service,omitempty" yaml:"origin_service,omitempty"`
+	LineageConfidence LineageConfidence   `json:"lineage_confidence" yaml:"lineage_confidence"`
+	Complete          bool                `json:"complete" yaml:"complete"`
+	FirstSeen         time.Time           `json:"first_seen" yaml:"first_seen"`
+	LastSeen          time.Time           `json:"last_seen" yaml:"last_seen"`
+	ExitedAt          *time.Time          `json:"exited_at,omitempty" yaml:"exited_at,omitempty"`
 }
 
 type Event struct {
@@ -128,11 +131,12 @@ type Event struct {
 	Process         Process      `json:"process" yaml:"process"`
 	// Ancestors are bounded source-provided process snapshots, nearest first.
 	// They provide context and are not additional execution events.
-	Ancestors []Process             `json:"ancestors,omitempty" yaml:"ancestors,omitempty"`
-	RawJSON   json.RawMessage       `json:"raw_json,omitempty" yaml:"raw_json,omitempty"`
-	Execution *ExecutionObservation `json:"execution,omitempty" yaml:"execution,omitempty"`
-	File      *FileObservation      `json:"file,omitempty" yaml:"file,omitempty"`
-	Network   *NetworkObservation   `json:"network,omitempty" yaml:"network,omitempty"`
+	Ancestors  []Process              `json:"ancestors,omitempty" yaml:"ancestors,omitempty"`
+	RawJSON    json.RawMessage        `json:"raw_json,omitempty" yaml:"raw_json,omitempty"`
+	Execution  *ExecutionObservation  `json:"execution,omitempty" yaml:"execution,omitempty"`
+	File       *FileObservation       `json:"file,omitempty" yaml:"file,omitempty"`
+	Network    *NetworkObservation    `json:"network,omitempty" yaml:"network,omitempty"`
+	Credential *CredentialObservation `json:"credential,omitempty" yaml:"credential,omitempty"`
 }
 
 // RiskFactor is a bounded rule contribution, not a probability of compromise.
