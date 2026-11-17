@@ -310,7 +310,7 @@ func boundedLimit(limit int) (int, error) {
 }
 
 func isContextObservation(kind string) bool {
-	return kind == "process.exec_observation" || kind == "file.write" || kind == "network.connect"
+	return kind == "process.credential_change" || kind == "process.exec_observation" || kind == "file.write" || kind == "network.connect"
 }
 
 func clearDerivedContext(process *model.Process) {

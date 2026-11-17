@@ -12,7 +12,7 @@
 - Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`, `cmd/sentinel-updater`
 - Developer Tool Entry: `cmd/xeas-release` (publisher signing tool, excluded from RPM payload)
 - Central Project: https://github.com/mkjang2000/Xe-AntiShell-Central
-- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.2.0`
+- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.3.0`
 - Build Command: `make build`, `make static`, or `make rpm`
 - Run Command: `build/sentineld --config configs/sentineld.yaml`
 - Test Command: `make verify` (source, shell/UI, vet, race tests, static build)
@@ -37,16 +37,21 @@ Xe-AntiShell/
 │   │   ├── processing.go          # Durable event pipeline and persistence/response failure separation
 │   │   ├── runtime_errors.go      # Independent recoverable operation errors over collector state
 │   │   ├── retention.go           # Deferred and paced database maintenance
+│   │   ├── privilege.go           # Opt-in engine capability, paired receipt epoch and fixed-policy worker
 │   │   └── managed_update.go      # Separate update inventory/polling/report worker
 │   ├── buildinfo/                 # Injected running RPM epoch/version/release/architecture
 │   ├── capability/                # Host/kernel feature discovery
 │   ├── collector/                 # Tetragon, audit, and replay adapters
 │   │   ├── audit_argv.go          # Bounded count/index validation for exact exec arguments
+│   │   ├── privilege_observation.go # Same-hook credential pairs with kernel task identity
+│   │   ├── privilege_credentials.go # Complete credential/capability/namespace decoding
 │   │   └── tetragon_observations.go # Fixed-policy inline/file/TCP metadata adapters
 │   ├── config/                    # Strict configuration loading and validation
 │   ├── detection/                 # Web-origin attribution and opt-in process behavior rules
 │   │   ├── classifiers.go         # Process/path observations without command reconstruction
 │   │   ├── execution.go           # Code-free exact-argv/policy evidence and runtime-argument removal
+│   │   ├── privilege.go           # Global root-exec retention and suspicious/all alert selection
+│   │   ├── privilege_credentials.go # Root restoration/gain and capability gain/activation rules
 │   │   └── extended.go            # One finding per observation, bounded factors, detection-only marker
 │   ├── identity/                  # Event and boot-scoped process identifiers
 │   ├── hostmetrics/               # Bounded procfs/sysfs resource and counter-delta sampler
@@ -54,6 +59,8 @@ Xe-AntiShell/
 │   ├── localapi/                  # HTTP/JSON API and client over Unix socket
 │   ├── model/                     # Shared core aliases plus agent-only history/UI models
 │   ├── managedclient/             # Pinned-CA HTTPS, mTLS and safe transport diagnostics
+│   ├── privileges/                # Strict Tetragon args and root-owned fixed monitor-policy controller
+│   │   └── credential-policy.yaml # Compiled commit_creds old/new/TID/start/TGID/return sensor
 │   ├── procfs/                    # Minimal live process/cgroup snapshot
 │   ├── releasepublish/            # Explicit publisher commands, private-key file safety and manifest handling
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
@@ -87,6 +94,7 @@ Xe-AntiShell/
 │   │   ├── releases.go            # Independently signed release manifest and built-in public publisher anchors
 │   │   └── testdata/              # Pre-extraction signed-policy/removal compatibility fixtures
 │   └── model/                     # Canonical core events, findings and agent status definitions
+│       ├── credentials.go         # Optional paired task credentials, capabilities and user namespaces
 │       └── observations.go        # Optional code-free execution/file/network facts
 ├── scripts/
 │   ├── build-rpm.sh               # Checked source selection and isolated local RPM build
@@ -109,6 +117,7 @@ Xe-AntiShell/
 │   ├── mit-publication.md          # MIT, bundled notices and initial public push scope
 │   ├── central-management.md      # Central integration and installer boundaries
 │   ├── managed-agent-updates.md   # Enrollment-bound RPM update staging, apply, identity and recovery
+│   ├── privilege-detection.md     # Global root and same-hook credential detection/control contract
 │   ├── sqlite-startup-stability.md # Serialized SQLite, safe retry, recovery and staggered startup
 │   ├── central-agent-updates.md   # Central release catalog, rollout authorization and publisher trust separation
 │   ├── central-project-separation.md # Separate repositories/packages and safe legacy migration
@@ -131,6 +140,7 @@ Xe-AntiShell/
 ├── devdocs/reviews/
 │   └── managed-agent-security.md  # Policy/delivery/response boundaries and tests
 ├── devdocs/research/
+│   ├── credential-sensor-live-proof.md # Bounded Rocky9/Tetragon1.8 real saved-root restoration proof
 │   └── tetragon-observations.md   # Pinned v1.8.0 source evidence, hook semantics and coverage limits
 ├── Linux_Host_Security_Platform_Design_v0.1.md
 ├── README.md
@@ -266,6 +276,15 @@ auditd dispatcher
   initiated rather than established. Each capability needs its own actual
   receipt; installation metadata is not runtime activation evidence. New policy
   attachment and workload overhead still require target-host validation.
+- Optional privilege rules retain global root executions and same-hook credential
+  transitions outside web-origin filters. Their fixed monitor-only policy is
+  compiled into packaged agents, controlled through a root-owned Unix endpoint,
+  and activated by local or compatible signed-policy opt-in. Actual applied
+  credential receipts establish monitoring only for the current attachment epoch.
+  Root namespace scope and restored saved-root credentials remain distinct; every
+  new privilege rule is detection-only. Global exec/commit_creds workload and
+  storage cost still require per-host measurement; fork-only ancestry fallback
+  and direct kernel credential writes are outside this sensor proof.
 - Phase 3 in-process code execution is design only. No runtime USDT/uprobe,
   language agent or compile/eval sensor is implemented by these observations.
 - The local Unix HTTP/JSON API is separate from the central mTLS protocol.

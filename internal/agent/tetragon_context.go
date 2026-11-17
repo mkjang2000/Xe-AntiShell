@@ -41,6 +41,12 @@ func (s *Service) retainTetragonEvent(event model.Event) bool {
 }
 
 func (s *Service) retainTetragonEventWithDetector(event model.Event, detector *detection.Engine) bool {
+	if detector.IsPrivilegeCandidate(event) {
+		return true
+	}
+	if event.Type == "process.credential_change" {
+		return false
+	}
 	if isOperationEvent(event.Type) {
 		_, matched := detector.MatchWebOrigin(event, s.lineage)
 		return matched

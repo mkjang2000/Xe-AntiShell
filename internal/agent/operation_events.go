@@ -16,7 +16,7 @@ import (
 )
 
 func isOperationEvent(kind string) bool {
-	return kind == "process.exec_observation" || kind == "file.write" || kind == "network.connect"
+	return kind == "process.credential_change" || kind == "process.exec_observation" || kind == "file.write" || kind == "network.connect"
 }
 
 // A source context snapshot can enrich an execution, but cannot resurrect it or
@@ -88,6 +88,25 @@ func validateOperationEvent(event model.Event) error {
 	}
 	if event.Network != nil {
 		count++
+	}
+	if event.Credential != nil {
+		count++
+	}
+	if event.Credential != nil {
+		if event.Type != "process.credential_change" || event.Credential.Validate() != nil || event.Process.PID != event.Credential.TGID || (event.Process.TID != 0 && event.Process.TID != event.Credential.TID) {
+			return errors.New("invalid or unrelated credential observation")
+		}
+	}
+	if event.Type == "process.credential_change" && event.Credential == nil {
+		return errors.New("credential event requires typed evidence")
+	}
+	if err := validateProcessCredentialMetadata(event.Process); err != nil {
+		return err
+	}
+	for _, p := range event.Ancestors {
+		if err := validateProcessCredentialMetadata(p); err != nil {
+			return err
+		}
 	}
 	if count > 1 {
 		return errors.New("multiple operation payloads are not allowed")
@@ -167,6 +186,14 @@ func validateOperationEvent(event model.Event) error {
 
 // A queued event owns its typed evidence, including optional result pointers.
 func cloneObservationPayloads(event *model.Event) {
+	event.Credential = event.Credential.Clone()
+	event.Process.Credentials = event.Process.Credentials.Clone()
+	event.Process.ExecPrivileges = event.Process.ExecPrivileges.Clone()
+	for i := range event.Ancestors {
+		event.Ancestors[i].Credentials = event.Ancestors[i].Credentials.Clone()
+		event.Ancestors[i].ExecPrivileges = event.Ancestors[i].ExecPrivileges.Clone()
+	}
+
 	if event.Execution != nil {
 		value := *event.Execution
 		event.Execution = &value
@@ -187,4 +214,26 @@ func cloneObservationPayloads(event *model.Event) {
 		}
 		event.Network = &value
 	}
+}
+
+func validateProcessCredentialMetadata(p model.Process) error {
+	if p.TID < 0 || p.TID > 2147483647 {
+		return errors.New("invalid process thread identity")
+	}
+	if err := p.Credentials.Validate(); err != nil {
+		return err
+	}
+	if e := p.ExecPrivileges; e != nil {
+		if len(e.Reasons) > 3 {
+			return errors.New("invalid exec privilege metadata")
+		}
+		seen := map[string]bool{}
+		for _, reason := range e.Reasons {
+			if (reason != "PRIVILEGES_RAISED_EXEC_FILE_CAP" && reason != "PRIVILEGES_RAISED_EXEC_FILE_SETUID" && reason != "PRIVILEGES_RAISED_EXEC_FILE_SETGID") || seen[reason] {
+				return errors.New("invalid exec privilege reason")
+			}
+			seen[reason] = true
+		}
+	}
+	return nil
 }

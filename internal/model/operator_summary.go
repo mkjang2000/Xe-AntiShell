@@ -19,6 +19,8 @@ type OperatorSummary struct {
 	OtherOpen            int       `json:"other_open"`
 	DetectionEnabled     bool      `json:"detection_enabled"`
 	ExtendedProcessRules bool      `json:"extended_process_rules"`
+	PrivilegeRules       bool      `json:"privilege_rules,omitempty"`
+	RootExecAlerts       string    `json:"root_exec_alerts,omitempty"`
 	ResponseMode         string    `json:"response_mode"`
 	ResponseAction       string    `json:"response_action"`
 	RecentFindings       []Finding `json:"recent_findings"`

@@ -234,22 +234,19 @@ type tetragonProcessExit struct {
 }
 
 type tetragonProcess struct {
-	ExecID             string               `json:"exec_id"`
-	ParentExecID       string               `json:"parent_exec_id"`
-	PID                int                  `json:"pid"`
-	UID                *uint32              `json:"uid"`
-	CWD                string               `json:"cwd"`
-	Binary             string               `json:"binary"`
-	Arguments          string               `json:"arguments"`
-	StartTime          time.Time            `json:"start_time"`
-	ProcessCredentials *tetragonCredentials `json:"process_credentials"`
-}
-
-type tetragonCredentials struct {
-	UID  *uint32 `json:"uid"`
-	EUID *uint32 `json:"euid"`
-	GID  *uint32 `json:"gid"`
-	EGID *uint32 `json:"egid"`
+	ExecID             string                    `json:"exec_id"`
+	ParentExecID       string                    `json:"parent_exec_id"`
+	PID                int                       `json:"pid"`
+	TID                int                       `json:"tid"`
+	UID                *uint32                   `json:"uid"`
+	CWD                string                    `json:"cwd"`
+	Binary             string                    `json:"binary"`
+	Arguments          string                    `json:"arguments"`
+	StartTime          time.Time                 `json:"start_time"`
+	ProcessCredentials *tetragonCredentials      `json:"process_credentials"`
+	Capabilities       *tetragonCapabilities     `json:"cap"`
+	Namespaces         *tetragonNamespaces       `json:"ns"`
+	BinaryProperties   *tetragonBinaryProperties `json:"binary_properties"`
 }
 
 func NormalizeTetragonJSON(raw []byte, ingestTime time.Time, metadata Metadata) (model.Event, error) {
@@ -258,6 +255,9 @@ func NormalizeTetragonJSON(raw []byte, ingestTime time.Time, metadata Metadata) 
 		return model.Event{}, fmt.Errorf("decode tetragon event: %w", err)
 	}
 	if envelope.ProcessKprobe != nil || envelope.ProcessTracepoint != nil {
+		if envelope.ProcessKprobe != nil && envelope.ProcessKprobe.PolicyName == tetragonCredentialPolicy {
+			return normalizeTetragonCredential(envelope, ingestTime, metadata)
+		}
 		return normalizeTetragonObservation(envelope, ingestTime, metadata)
 	}
 	event := model.Event{
@@ -394,6 +394,7 @@ func tetragonToProcess(source tetragonProcess, observedAt time.Time) model.Proce
 	process := model.Process{
 		ExecID:            source.ExecID,
 		PID:               source.PID,
+		TID:               source.TID,
 		PPID:              -1,
 		StartTime:         source.StartTime.UTC(),
 		Exe:               source.Binary,
@@ -419,6 +420,8 @@ func tetragonToProcess(source tetragonProcess, observedAt time.Time) model.Proce
 			process.EUID = credentialID(credentials.EUID)
 		}
 	}
+	process.Credentials = tetragonExecCredentialSnapshot(source)
+	process.ExecPrivileges = tetragonExecPrivileges(source.BinaryProperties)
 	return process
 }
 

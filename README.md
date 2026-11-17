@@ -106,6 +106,43 @@ initialization, enrollment, signed policies, removal authorization and recovery.
 Central setup is a separate operation; the installer enrolls an agent with an
 already initialized server. Preserve the recovery file securely outside the host.
 
+## Root and credential observation
+
+Compatible packaged agents can opt in through Central's privilege profile
+(Agent RPM26 / Central RPM13, protocol v0.3.0), independently of web origins.
+Central checks the current enrollment's fresh engine capability before issuing
+new policy fields. Standalone configuration uses `detection.privilege_rules:
+true` and optional `root_exec_alerts: suspicious` or `all`. The default is off.
+The source must be an unfiltered JSON Tetragon subscription; only reviewed
+argv/environment field exclusions are allowed. A root-owned Unix endpoint and
+trusted executable are required for the fixed policy controller.
+
+`suspicious` retains every observed root exec but alerts only when bounded
+context factors reach45. `all` also emits low-score routine root alerts. Neither
+mode suppresses normal credential-change evidence. These are observations, not
+proof of unauthorized escalation: saved/real root restoration, initial user
+namespace root gain and unknown/container namespace identity changes have
+separate labels. Complete paired snapshots and successful kernel return are
+required for a confirmed transition; cached exec credentials are never Before.
+Only effective/permitted Capability increases produce current capability rules;
+other UID/GID/capability changes remain available as observation history.
+
+The agent controls one compiled monitor-only `commit_creds` policy in a separate
+private state directory. Arbitrary remote YAML/commands are not supported. The
+engine capability means the profile can be enabled; actual credential monitoring
+requires a new complete receipt in the current policy attachment epoch. The
+controller retries bounded control failures every15seconds; a failed process
+collector still requires its existing service recovery procedure.
+
+The sensor does not observe direct kernel credential writes, all task creation
+without exec, or establish container escape from UID0. In-place credential
+changes are not general in-process RCE detection. Global hooks and root-exec
+storage increase workload and still require per-host measurement. See the
+[design](devdocs/plans/privilege-detection.md) and the bounded
+[real-kernel proof](devdocs/research/credential-sensor-live-proof.md) for evidence
+and remaining validation boundaries. The new rules never terminate processes,
+including under another policy's enforce mode.
+
 ## Current scope
 
 - Passive host capability discovery for kernel, BTF, audit, Tetragon, IMA,
@@ -121,6 +158,10 @@ already initialized server. Preserve the recovery file securely outside the host
   Python/Node/PHP/Perl/Ruby, plus separate fixed-policy file-write/TCP-initiation
   adapters and an explicit installation helper; new kernel policies still need
   target-host attachment and workload validation
+- Opt-in global root-execution evidence and paired `commit_creds` observations,
+  separating root restoration, initial-user-namespace root gain and
+  effective/permitted Capability gain or activation; all six new rules are
+  detection-only and require explicit profile opt-in
 - HTTP/JSON management API on a mode-`0660` Unix socket
 - Authenticated monitoring panel for agent health, findings, candidate events,
   capabilities, and process ancestry

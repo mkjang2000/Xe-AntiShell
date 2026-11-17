@@ -34,6 +34,7 @@ for test_path in go.mod go.sum Makefile install.sh README.md Project_tree.md \
   packaging/install-tetragon.sh packaging/install_tetragon_test.sh packaging/tetragon/setup.py packaging/tetragon/setup_config.py \
   packaging/tetragon/test_setup.py \
   cmd/sentineld/main.go internal/model/model.go internal/storage/schema.sql \
+  internal/privileges/credential-policy.yaml \
   internal/webpanel/assets/index.html internal/webpanel/assets/app.js \
   scripts/check-source.py scripts/build-rpm.sh testdata/events/replay.jsonl \
   configs/examples/monitor.yaml devdocs/plans/install.md devdocs/reviews/security.md \
@@ -153,6 +154,7 @@ with tarfile.open(sys.argv[1], 'r:gz') as archive:
     root = 'xe-antishell-0.1.0/'
     for expected in ['README.md','LICENSE','THIRD_PARTY_NOTICES.md','third_party/licenses/upstream-LICENSE.txt','go.mod','protocol/go.mod','protocol/LICENSE','protocol/README.md','protocol/managed/protocol.go','protocol/managed/protocol_test.go','protocol/managed/testdata/legacy-policy.json','protocol/model/model.go','internal/model/model.go','internal/storage/schema.sql','configs/examples/monitor.yaml','devdocs/plans/install.md','devdocs/analysis/managed-v1-operations.md','Linux_Host_Security_Platform_Design_v0.1.md']:
         assert root+expected in names, expected
+    assert root+'internal/privileges/credential-policy.yaml' in names
     assert root+'packaging/systemd/sentinel-central.service' not in names
     assert root+'packaging/install-wizard.sh' in names
     assert root+'packaging/install_wizard_test.py' in names
@@ -166,6 +168,12 @@ with tarfile.open(sys.argv[1], 'r:gz') as archive:
         assert b'DO_NOT_ARCHIVE_PRIVATE_FIXTURE' not in archive.extractfile(member).read(), member.name
 PY
 [[ "$(< "$test_work/stdout")" != *'DO_NOT_ARCHIVE_PRIVATE_FIXTURE'* ]]
+
+# The compiled fixed sensor is required, never silently omitted from archives.
+mv "$XEAS_BUILD_ROOT/internal/privileges/credential-policy.yaml" "$test_work/sensor-policy-backup"
+expect_failure --output-dir "$test_work/missing-sensor-output"
+[[ ! -e "$test_work/missing-sensor-output" ]]
+mv "$test_work/sensor-policy-backup" "$XEAS_BUILD_ROOT/internal/privileges/credential-policy.yaml"
 
 # Ordinary repeat builds preserve existing bytes; replacement is explicit.
 XEAS_MOCK_PAYLOAD=SECOND_COMPLETE_RPM_FIXTURE

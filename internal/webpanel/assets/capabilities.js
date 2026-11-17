@@ -15,7 +15,8 @@ const capabilityNames = {
   "kernel.ebpf": "실시간 수집 환경",
   "observation.file": "파일 쓰기 관측",
   "observation.network": "TCP 연결 요청 관측",
-  "observation.credential_change": "권한 변경 감시",
+  "observation.credential_change": "권한 변경 전·후 관측",
+  "detection.privilege_rules": "전역 root·권한 변경 탐지 규칙",
 };
 const capabilityOrder = Object.keys(capabilityNames);
 const capabilityDetailsOpen = new Set();
@@ -55,6 +56,14 @@ function capabilityPresentation(name, value) {
     return result;
   }
   if (!knownSupport) return result;
+  if (name === "detection.privilege_rules") {
+    if (capability.implementation !== "implemented") return result;
+    if (support === "unsupported") return show("프로필 사용 불가", "unsupported", "현재 수집 입력이 전역 실행·권한 변경 근거를 누락할 수 있어 이 프로필을 활성화할 수 없습니다.", "수집 인자를 검토한 뒤 다시 확인하세요.");
+    if (runtime === "active") return show("규칙 적용", "active", "전역 root 실행과 검증된 권한 변경 근거를 평가하는 규칙이 적용됐습니다. 이 규칙은 탐지 전용입니다. 실제 권한 변경 센서의 수신 여부는 ‘권한 변경 전·후 관측’에서 확인하세요.");
+    if (runtime === "available" || runtime === "inactive") return show("규칙 제공", "inactive", "현재 버전이 탐지 규칙을 제공합니다. 규칙 적용과 커널 센서의 실제 동작을 의미하지 않습니다.", "적용 정책과 권한 변경 관측 상태를 함께 확인하세요.");
+    return show("규칙 확인 필요", "unverified", "탐지 규칙의 적용 상태를 확인할 수 없습니다. 센서의 수집 여부와는 별도 항목입니다.");
+  }
+
 
   // An unused alternate collector is intentional, even if its prerequisites
   // are absent. It must not imply that the selected collection path is broken.
@@ -72,6 +81,7 @@ function capabilityPresentation(name, value) {
         "observation.process_exec": audit ? "실행을 관찰하며 탐지 대상 이력만 저장합니다. 현재 수집 방법은 프로세스 종료 정보를 제공하지 않습니다." : "실행을 관찰하며 탐지 대상 이력만 저장합니다.",
         "observation.process_lineage": audit ? "실행 기록과 현재 프로세스 정보로 서비스 실행 경로를 추정합니다. 종료 정보는 제공되지 않습니다." : "어떤 서비스에서 실행됐는지 추적합니다. 일부 상위 실행 정보가 누락될 수 있습니다.",
         "observation.interpreter_exec": "실행 옵션 관측 이벤트를 수신했습니다. 전용 수집 정책의 옵션 조건 또는 분리된 실행 인자로 직접 코드·임시 스크립트 실행 요청을 구분합니다. 기존 프로세스 내부 실행과 실행 성공·코드 내용은 확인하지 않습니다.",
+        "observation.credential_change": "같은 commit_creds 호출의 전·후 자격 증명과 성공 반환을 수신했습니다. 변경이 악성이라는 뜻은 아닙니다. UID/EUID·Capability·user namespace의 관측 범위 안에서 판단합니다.",
         "observation.file": "선택한 수집 정책의 파일 쓰기 이벤트를 수신했습니다. 경로와 호출 반환값을 관측하며 파일 내용·모든 쓰기·디스크 반영을 보장하지 않습니다.",
         "observation.network": "선택한 수집 정책의 TCP 연결 요청 이벤트를 수신했습니다. 대상과 호출 반환값을 관측하며 연결 완료·모든 통신·전송 내용은 확인하지 않습니다.",
       };
@@ -107,6 +117,10 @@ function capabilityPresentation(name, value) {
     return result;
   }
   if (capability.implementation !== "implemented") return result;
+  if (name === "observation.credential_change") {
+    if (runtime === "unverified" || runtime === "available") return show("관측 확인 대기", "unverified", "규칙 구현이나 정책 설치만으로 센서 동작을 확인할 수 없습니다. 전용 정책에서 완전한 전·후 자격 증명과 성공 반환을 수신해야 동작이 확인됩니다.", "전용 수집 정책 설치·호환성과 에이전트의 권한 관측 설정을 확인하세요.");
+    if (runtime === "inactive") return show("관측 꺼짐", "inactive", "권한 변경 전·후 관측이 꺼져 있거나 해당 수집 경로가 선택되지 않았습니다. 전역 root 실행 규칙의 지원 여부와 구분하세요.");
+  }
   const scopedObservation = ["observation.interpreter_exec", "observation.file", "observation.network"].includes(name);
   if (runtime === "unverified") {
     return show("확인 대기", "unverified", scopedObservation ? "수집 정책이나 설정만으로 동작을 확인할 수 없습니다. 이 기능의 실제 관측 이벤트를 기다리고 있습니다." : "수집 설정은 선택되었으며 실제 실행 정보가 들어오는지 확인하고 있습니다.");

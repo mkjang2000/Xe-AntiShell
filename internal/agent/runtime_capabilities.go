@@ -18,6 +18,7 @@ type sourceRuntimeEvidence struct {
 	FileAt        time.Time
 	NetworkAt     time.Time
 	InterpreterAt time.Time
+	CredentialAt  time.Time
 }
 
 func (s *Service) recordRuntimeEvent(event model.Event) {
@@ -35,6 +36,18 @@ func (s *Service) recordRuntimeEvent(event model.Event) {
 	evidence := s.runtimeEvidence[event.Source]
 	now := time.Now().UTC()
 	switch event.Type {
+	case "process.credential_change":
+		if event.Credential != nil && event.Credential.Outcome == "applied" {
+			// Use the original source/ingress clock, not delayed queue processing.
+			// An old receipt must never activate a newly loaded policy generation.
+			at := event.EventTime
+			if event.IngestTime.Before(at) {
+				at = event.IngestTime
+			}
+			if !at.IsZero() && !event.IngestTime.IsZero() && !at.After(now) && at.After(evidence.CredentialAt) {
+				evidence.CredentialAt = at
+			}
+		}
 	case "file.write":
 		evidence.FileAt = now
 	case "network.connect":
@@ -82,6 +95,7 @@ func (s *Service) runtimeSnapshot() (model.AgentStatus, model.CapabilityReport) 
 		report.Capabilities = make(map[string]model.Capability)
 	}
 	report.Capabilities[response.CapabilityName] = response.Capability(s.config.Response.AllowTerminate)
+	s.applyPrivilegeCapabilities(&status, &report, evidence)
 	status.CapabilityReport = &report
 	return status, report
 }
@@ -138,15 +152,11 @@ func applyRuntimeCapabilities(report *model.CapabilityReport, status model.Agent
 			value.RuntimeReason = "host prerequisite probe failed"
 		}
 		switch name {
-		case capability.CredentialCapability:
-			value.Implementation = "planned"
-			value.RuntimeState = "inactive"
-			value.RuntimeReason = "agent observation and detection are not implemented"
 		case capability.IMACapability, capability.TPMCapability:
 			value.Implementation = "planned"
 			value.RuntimeState = "inactive"
 			value.RuntimeReason = "host prerequisite probe only; agent integrity verification is not implemented"
-		case capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability:
+		case capability.CredentialCapability, capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability:
 			value.RuntimeState = "unverified"
 			value.RuntimeReason = "optional observation policy has no verified source event in this daemon lifetime"
 			if status.Collector != "tetragon-json" && (name != capability.InterpreterCapability || status.Collector != "audit-dispatcher") {
@@ -200,6 +210,7 @@ func applyRuntimeCapabilities(report *model.CapabilityReport, status model.Agent
 			at     time.Time
 			reason string
 		}{
+			{capability.CredentialCapability, evidence.CredentialAt, "same-hook before/after credential pair and successful return received; source trust remains required"},
 			{capability.FileCapability, evidence.FileAt, "vfs_write events received; positive returns confirm bytes written; writev, mmap and io_uring are outside this hook"},
 			{capability.NetworkCapability, evidence.NetworkAt, "TCP connect attempts received; a zero return is initiation, not an established connection; UDP and socket contents are not observed"},
 			{capability.InterpreterCapability, evidence.InterpreterAt, "fixed interpreter invocation argument policy matches received; code execution completion is not established"},
@@ -212,7 +223,7 @@ func applyRuntimeCapabilities(report *model.CapabilityReport, status model.Agent
 		setRuntime(report, capability.InterpreterCapability, "active", "exact audit argv yielded interpreter invocation metadata; code contents are omitted", evidence.InterpreterAt)
 	}
 	if status.Health == model.HealthError || (status.LastError != "" && status.Mode != model.AgentModeActive) || (stream != nil && stream.LastError != "") {
-		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability, capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability} {
+		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability, capability.CredentialCapability, capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability} {
 			setRuntime(report, name, "error", "selected collector or agent reported a runtime failure; inspect system status", time.Time{})
 		}
 		if source == "tetragon" {
@@ -221,7 +232,7 @@ func applyRuntimeCapabilities(report *model.CapabilityReport, status model.Agent
 		return
 	}
 	if stream != nil && !stream.Running {
-		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability, capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability} {
+		for _, name := range []string{collectorName, capability.ProcessExecCapability, capability.ProcessLineageCapability, capability.CredentialCapability, capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability} {
 			setRuntime(report, name, "unverified", "selected collector stream is not running", time.Time{})
 		}
 		if source == "tetragon" {

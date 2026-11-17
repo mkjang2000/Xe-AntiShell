@@ -60,7 +60,7 @@ build_check_dependencies() {
 build_source_paths() (
   cd -- "$XEAS_BUILD_ROOT" || return 1
   local path source_dir
-  local required=(go.mod go.sum Makefile install.sh README.md Project_tree.md
+  local required=(go.mod go.sum Makefile install.sh README.md Project_tree.md internal/privileges/credential-policy.yaml
     LICENSE THIRD_PARTY_NOTICES.md protocol/go.mod protocol/LICENSE
     configs/sentineld.yaml packaging/rpm/xe-antishell.spec
     packaging/systemd/sentineld.service packaging/systemd/sentinel-web.service

@@ -30,6 +30,7 @@ class HistoryView {
         this.load();
       });
     }
+    if(kind==="events")byId("eventTypeFilter").addEventListener("change",()=>{this.reset();this.load();});
     byId(`${kind}Previous`).addEventListener("click", () => this.previous());
     byId(`${kind}Next`).addEventListener("click", () => this.next());
   }
@@ -60,6 +61,7 @@ class HistoryView {
     const query = new URLSearchParams({kind: this.kind, limit: "10"});
     const service = byId(`${this.kind}Service`).value;
     const search = byId(this.searchID).value.trim();
+    if(this.kind==="events"&&byId("eventTypeFilter").value)query.set("event_type",byId("eventTypeFilter").value);
     if (service) query.set("service", service);
     if (search) query.set("q", search);
     if (this.kind === "findings" && byId("severityFilter").value) query.set("severity", byId("severityFilter").value);
@@ -212,16 +214,15 @@ function recordsRiskFields(finding) {
 function findingCard(finding) {
   const copy = recordsFindingText(finding), process = recordsFindingProcess(finding);
   const badges = [recordsBadge("severity", finding.severity)];
-  const response = finding.detection_only === true ? "detection_only" : finding.response_decision || "unknown";
-  badges.push(tag(operatorLabel("response", response), "response-result"));
+  badges.push(tag(findingResponseLabel(finding), "response-result"));
   if (isSelfTestFinding(finding)) badges.push(tag("기능 점검", "selftest"));
   const origin = [serviceLabel(finding.origin_service), process.exe, process.pid ? `PID ${process.pid}` : ""].filter(Boolean).join(" · ");
   const article = recordsLayout(finding.created_at, copy.title, copy.description, origin, badges);
   article.append(recordDetails([
     ["검토 상태", operatorLabel("state", finding.state)], ["탐지 규칙", finding.rule_id], ["탐지 원문", finding.summary],
     ...recordsRiskFields(finding),
-    ...(finding.detection_only === true ? [["대응 범위", "확장 탐지 전용 · 이 탐지는 자동 종료 대상에 포함되지 않습니다."]] : []),
-    ["추적 근거", recordsConfidence(finding.confidence)], ["증거 기록", `${(finding.evidence_event_ids || []).length}건`],
+    ...(finding.detection_only === true ? [["대응 범위", `${isPrivilegeRule(finding.rule_id)?"권한 탐지 전용":"확장 탐지 전용"} · 이 탐지는 자동 종료 대상에 포함되지 않습니다.`]] : []),
+    [isPrivilegeRule(finding.rule_id)?"관측 근거":"추적 근거", isPrivilegeRule(finding.rule_id)?privilegeConfidence(finding.confidence):recordsConfidence(finding.confidence)], ["증거 기록", `${(finding.evidence_event_ids || []).length}건`],
     ["탐지 식별자", finding.finding_id], ["규칙 버전", finding.rule_version], ["프로세스 식별자", finding.process_key],
     ["증거 이벤트 식별자", (finding.evidence_event_ids || []).join(" · ")], ["수집 출처", finding.source],
     ["적용 정책", finding.policy_revision ? `${finding.policy_revision}번` : "서버 자체 설정"],
@@ -232,12 +233,12 @@ function findingCard(finding) {
 function eventCard(event) {
   const process = event.process || {};
   const observation = eventObservation(event);
-  const context = [serviceLabel(process.origin_service), process.pid ? `PID ${process.pid}` : "실행 번호 미확인", process.euid === 0 ? "관리자 권한" : process.euid >= 0 ? `사용자 번호 ${process.euid}` : "실행 권한 미확인"].join(" · ");
+  const context = [serviceLabel(process.origin_service), process.pid ? `PID ${process.pid}` : "실행 번호 미확인", event.event_type==="process.credential_change" ? "별도 전·후 자격 증명 확인" : process.euid === 0 ? "관리자 권한(EUID 0) 실행 스냅샷" : process.euid >= 0 ? `실행 스냅샷 사용자 번호 ${process.euid}` : "실행 권한 미확인"].join(" · ");
   const article = recordsLayout(event.event_time, process.exe || "실행 파일 미확인", observation.summary, context, [tag(operatorLabel("event", event.event_type), "inactive")]);
   article.append(recordDetails([
     ["실행 활동", operatorLabel("event", event.event_type)], ["상위 실행 번호", process.ppid],
     ...observation.fields,
-    ["실제 사용자 번호", credentialLabel(process.uid)], ["실행 권한 사용자 번호", credentialLabel(process.euid)],
+    ["실행 스냅샷 실제 사용자 번호", credentialLabel(process.uid)], ["실행 스냅샷 EUID", credentialLabel(process.euid)],
     ["정보 확인 수준", operatorLabel("completeness", event.completeness)], ["원본 정보 상태", event.completeness],
     ["이벤트 식별자", event.event_id], ["원본 이벤트 종류", event.event_type], ["수집 출처", event.source],
     ["작업 경로", process.cwd], ["기록된 실행 인자", (process.argv || []).join(" ")],

@@ -83,6 +83,8 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 			Shells:               policy.Detection.Shells,
 			AllowedPairs:         policy.Detection.AllowedPairs,
 			ExtendedProcessRules: policy.Detection.ExtendedProcessRules,
+			PrivilegeRules:       policy.Detection.PrivilegeRules,
+			RootExecAlerts:       policy.Detection.RootExecAlerts,
 		}),
 		enabled: policy.Detection.Enabled, policy: &policy,
 	})
@@ -93,6 +95,15 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 }
 
 func (s *Service) validatePolicyCoverage(policy managed.Policy) error {
+	if policy.Detection.PrivilegeRules {
+		if !privilegeArgumentsUsable(s.config.Collector.Tetragon.Args) {
+			return errors.New("privilege observation cannot use source-side event filters")
+		}
+		if s.currentCollectorName() == "audit-dispatcher" && len(s.config.Collector.Audit.IncludeExecutables) != 0 {
+			return errors.New("global root observation requires an unfiltered audit input")
+		}
+	}
+
 	if policy.Detection.ExtendedProcessRules && (len(s.config.Collector.Audit.IncludeExecutables) != 0 || len(s.config.Collector.Tetragon.IncludeExecutables) != 0) {
 		return errors.New("extended process rules require empty audit and Tetragon executable filters")
 	}

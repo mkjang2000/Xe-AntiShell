@@ -7,6 +7,7 @@
   <title>Xe-AntiShell 서버 보안 현황</title>
   <script src="/assets/theme.js"></script>
   <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/privilege.js" defer></script>
   <script src="/assets/presentation.js" defer></script>
   <script src="/assets/capabilities.js" defer></script>
   <script src="/assets/overview.js" defer></script>
@@ -56,7 +57,7 @@
       </div>
     </section>
     <section id="view-events" class="view-panel" role="tabpanel" aria-labelledby="tab-events" tabindex="0" hidden>
-      <div class="panel history-panel"><div class="panel-head"><h2>실행 이력</h2><span class="section-note">보존된 탐지 관련 실행 기록</span></div><form id="eventsFilters" class="history-filters" role="search" aria-label="실행 이력 검색"><div class="field"><label for="eventsService">서비스</label><select id="eventsService"><option value="">모든 서비스</option></select></div><div class="field grow"><label for="eventSearch">실행 파일·서비스 검색</label><input id="eventSearch" type="search" placeholder="예: /bin/sh" maxlength="200"></div><button class="primary" type="submit">검색</button></form><p id="eventsStatus" class="history-status" role="status" aria-live="polite"></p><div id="eventsGroups" class="history-groups" aria-busy="false"></div><p id="eventsEmpty" class="empty hidden">조건에 맞는 실행 이력이 없습니다.</p><nav class="pagination compact-pager" aria-label="실행 이력 페이지"><button id="eventsPrevious" class="ghost" type="button" disabled>이전</button><span id="eventsPage" class="page-description">1페이지</span><button id="eventsNext" class="ghost" type="button" disabled>다음</button></nav></div>
+      <div class="panel history-panel"><div class="panel-head"><h2>실행 이력</h2><span class="section-note">보존된 탐지 관련 실행 기록</span></div><form id="eventsFilters" class="history-filters" role="search" aria-label="실행 이력 검색"><div class="field"><label for="eventsService">서비스</label><select id="eventsService"><option value="">모든 서비스</option></select></div><div class="field"><label for="eventTypeFilter">활동 종류</label><select id="eventTypeFilter"><option value="">모든 활동</option><option value="process.exec">프로그램 실행</option><option value="process.exit">프로그램 종료</option><option value="process.exec_observation">실행 옵션 관측</option><option value="process.credential_change">권한 변경 관측</option><option value="file.write">파일 쓰기 관측</option><option value="network.connect">TCP 연결 요청 관측</option></select></div><div class="field grow"><label for="eventSearch">실행 파일·서비스 검색</label><input id="eventSearch" type="search" placeholder="예: /bin/sh" maxlength="200"></div><button class="primary" type="submit">검색</button></form><p id="eventsStatus" class="history-status" role="status" aria-live="polite"></p><div id="eventsGroups" class="history-groups" aria-busy="false"></div><p id="eventsEmpty" class="empty hidden">조건에 맞는 실행 이력이 없습니다.</p><nav class="pagination compact-pager" aria-label="실행 이력 페이지"><button id="eventsPrevious" class="ghost" type="button" disabled>이전</button><span id="eventsPage" class="page-description">1페이지</span><button id="eventsNext" class="ghost" type="button" disabled>다음</button></nav></div>
     </section>
     <section id="view-system" class="view-panel" role="tabpanel" aria-labelledby="tab-system" tabindex="0" hidden>
       <h2 class="visually-hidden">시스템과 수집 상태</h2>

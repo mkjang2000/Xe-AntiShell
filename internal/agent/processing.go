@@ -78,14 +78,14 @@ func (s *Service) processEvent(ctx context.Context, event *model.Event) error {
 				event.Process.OriginService = origin
 			}
 		}
-		if event.Source == "audit" && s.config.Collector.Audit.OnlyDetectionOrigins {
+		if event.Source == "audit" && s.config.Collector.Audit.OnlyDetectionOrigins && !detection.engine.IsPrivilegeCandidate(*event) {
 			if _, matched := detection.engine.MatchWebOrigin(*event, s.lineage); !matched {
 				return nil
 			}
 		}
 		s.lineage.Observe(event)
 		s.recordRuntimeEvent(*event)
-	case "process.exec_observation", "file.write", "network.connect":
+	case "process.credential_change", "process.exec_observation", "file.write", "network.connect":
 		if err := s.observeOperationContext(ctx, event); err != nil {
 			return &eventProcessingError{operation: "event_store", cause: err}
 		}

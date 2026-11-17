@@ -1,6 +1,6 @@
 Name:           xe-antishell
 Version:        0.1.0
-Release:        25%{?dist}
+Release:        26%{?dist}
 Summary:        Standalone Linux host security monitoring agent
 License:        MIT AND Apache-2.0 AND BSD-3-Clause AND BSD-2-Clause AND BSD-1-Clause AND SunPro
 URL:            https://github.com/mkjang2000/Xe-AntiShell
@@ -71,6 +71,11 @@ fi
 %systemd_postun_with_restart sentinel-web.service
 
 %changelog
+* Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-26
+- Add opt-in global root-execution and same-hook credential transition detection
+- Reconcile one fixed monitor-only kernel policy with receipt-based capability evidence
+- Keep new findings detection-only and show paired proof in Korean history details
+
 * Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-25
 - Serialize SQLite access and retry transient observation writer reservation
 - Recover operation-specific storage errors after successful evidence persistence

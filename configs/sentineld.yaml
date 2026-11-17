@@ -56,6 +56,11 @@ privacy:
 detection:
   enabled: true
   extended_process_rules: false
+  # Optional global root execution + paired commit_creds observation.
+  # Requires the reviewed unfiltered Tetragon JSON/Unix source on a packaged host.
+  # Default suspicious alerts retain all root exec evidence but alert on context.
+  # root_exec_alerts may be suspicious or all only while privilege_rules is true.
+  privilege_rules: false
   web_executables:
     - httpd
     - apache2

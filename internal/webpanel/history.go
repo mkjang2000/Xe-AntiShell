@@ -44,7 +44,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	page, err := client.History(ctx, model.HistoryQuery{Kind: values.Get("kind"), Service: values.Get("service"), Search: values.Get("q"), Severity: values.Get("severity"), Cursor: values.Get("cursor"), Limit: limit, ExcludeSelfTests: excludeSelfTests})
+	page, err := client.History(ctx, model.HistoryQuery{Kind: values.Get("kind"), EventType: values.Get("event_type"), Service: values.Get("service"), Search: values.Get("q"), Severity: values.Get("severity"), Cursor: values.Get("cursor"), Limit: limit, ExcludeSelfTests: excludeSelfTests})
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": "history query failed; check filters or reload the first page"})
 		return

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"xe-antishell/internal/hostmetrics"
 	"xe-antishell/internal/lineage"
 	"xe-antishell/internal/model"
+	"xe-antishell/internal/privileges"
 	"xe-antishell/internal/procfs"
 	"xe-antishell/internal/storage"
 	"xe-antishell/internal/updates"
@@ -50,16 +52,17 @@ type ProcessSource interface {
 }
 
 type Service struct {
-	config         config.Config
-	store          *storage.Store
-	prober         CapabilityProber
-	processSource  ProcessSource
-	lineage        *lineage.Tracker
-	metrics        *hostmetrics.Sampler
-	detector       *detection.Engine
-	detectionState atomic.Pointer[detectionState]
-	managedRuntime *managedRuntime
-	updateManager  *updates.Manager
+	config              config.Config
+	store               *storage.Store
+	prober              CapabilityProber
+	processSource       ProcessSource
+	lineage             *lineage.Tracker
+	metrics             *hostmetrics.Sampler
+	detector            *detection.Engine
+	detectionState      atomic.Pointer[detectionState]
+	managedRuntime      *managedRuntime
+	updateManager       *updates.Manager
+	privilegeController *privileges.Controller
 
 	eventQueue chan model.Event
 	sequence   atomic.Uint64
@@ -129,6 +132,8 @@ func NewWithProcessSource(cfg config.Config, store *storage.Store, prober Capabi
 			Shells:               cfg.Detection.Shells,
 			AllowedPairs:         cfg.Detection.AllowedPairs,
 			ExtendedProcessRules: cfg.Detection.ExtendedProcessRules,
+			PrivilegeRules:       cfg.Detection.PrivilegeRules,
+			RootExecAlerts:       cfg.Detection.RootExecAlerts,
 		}),
 		eventQueue:    make(chan model.Event, cfg.Limits.QueueSize),
 		shutdownDone:  make(chan struct{}),
@@ -143,6 +148,9 @@ func NewWithProcessSource(cfg config.Config, store *storage.Store, prober Capabi
 	service.detectionState.Store(&detectionState{engine: service.detector, enabled: cfg.Detection.Enabled})
 	service.managedRuntime = newManagedRuntime()
 	service.updateManager = updates.NewManager()
+	if buildinfo.PackageRelease != "" && os.Geteuid() == 0 && updates.StandardPaths(cfg.Agent.SocketPath, cfg.Agent.DatabasePath) {
+		service.privilegeController = privileges.New(cfg.Collector.Tetragon.Command, cfg.Collector.Tetragon.Args, filepath.Join(filepath.Dir(cfg.Agent.DatabasePath), "privilege-sensor"))
+	}
 	return service, nil
 }
 
@@ -236,6 +244,8 @@ func (s *Service) Start(parent context.Context) error {
 	}
 	s.producerWG.Add(1)
 	go s.retentionLoop(ctx)
+	s.producerWG.Add(1)
+	go s.privilegeLoop(ctx)
 	return nil
 }
 
@@ -359,9 +369,9 @@ func (s *Service) Submit(ctx context.Context, event model.Event) error {
 	s.submitMu.Unlock()
 	defer s.submitWG.Done()
 
-	cloneObservationPayloads(&event)
 	event.Process.Argv = append([]string(nil), event.Process.Argv...)
 	event.Ancestors = append([]model.Process(nil), event.Ancestors...)
+	cloneObservationPayloads(&event)
 	event.MissingFields = append([]string(nil), event.MissingFields...)
 	event.RedactedFields = append([]string(nil), event.RedactedFields...)
 	event.TruncatedFields = append([]string(nil), event.TruncatedFields...)

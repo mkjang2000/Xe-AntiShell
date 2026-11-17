@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+	"xe-antishell/internal/privileges"
 )
 
 const CurrentVersion = 1
@@ -97,6 +98,8 @@ type PrivacyConfig struct {
 type DetectionConfig struct {
 	Enabled              bool     `json:"enabled" yaml:"enabled"`
 	ExtendedProcessRules bool     `json:"extended_process_rules,omitempty" yaml:"extended_process_rules,omitempty"`
+	PrivilegeRules       bool     `json:"privilege_rules,omitempty" yaml:"privilege_rules,omitempty"`
+	RootExecAlerts       string   `json:"root_exec_alerts,omitempty" yaml:"root_exec_alerts,omitempty"`
 	WebExecutables       []string `json:"web_executables" yaml:"web_executables"`
 	WebServices          []string `json:"web_services,omitempty" yaml:"web_services,omitempty"`
 	Shells               []string `json:"shells" yaml:"shells"`
@@ -183,6 +186,9 @@ func Decode(r io.Reader) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.Detection.RootExecAlerts != "" && (!c.Detection.PrivilegeRules || (c.Detection.RootExecAlerts != "suspicious" && c.Detection.RootExecAlerts != "all")) {
+		return errors.New("invalid detection.root_exec_alerts")
+	}
 	if c.Version != CurrentVersion {
 		return fmt.Errorf("unsupported config version %d", c.Version)
 	}
@@ -228,6 +234,12 @@ func (c Config) Validate() error {
 	}
 	// Check both sources so auto mode and later collector switches cannot silently
 	// narrow the executable coverage required by the extended process rules.
+	if c.Detection.PrivilegeRules && (c.Collector.Mode == CollectorTetragon || c.Collector.Mode == CollectorAuto) && !privileges.EventArgumentsUsable(c.Collector.Tetragon.Args) {
+		return errors.New("privilege rules require reviewed unfiltered Tetragon JSON arguments")
+	}
+	if c.Detection.PrivilegeRules && len(c.Collector.Audit.IncludeExecutables) != 0 && (c.Collector.Mode == CollectorAudit || c.Collector.Mode == CollectorAuto) {
+		return errors.New("privilege rules require unfiltered audit fallback")
+	}
 	if c.Detection.ExtendedProcessRules {
 		if len(c.Collector.Audit.IncludeExecutables) != 0 {
 			return errors.New("detection.extended_process_rules requires empty collector.audit.include_executables")
@@ -287,10 +299,13 @@ func (c Config) Validate() error {
 		if err := validateUniqueListAllowEmpty("detection.web_services", c.Detection.WebServices); err != nil {
 			return err
 		}
-		if len(c.Detection.WebExecutables) == 0 && len(c.Detection.WebServices) == 0 {
+		if !c.Detection.PrivilegeRules && len(c.Detection.WebExecutables) == 0 && len(c.Detection.WebServices) == 0 {
 			return errors.New("detection requires at least one web executable or web service when enabled")
 		}
-		if err := validateUniqueList("detection.shells", c.Detection.Shells); err != nil {
+		if !c.Detection.PrivilegeRules && len(c.Detection.Shells) == 0 {
+			return errors.New("detection.shells must not be empty")
+		}
+		if err := validateUniqueListAllowEmpty("detection.shells", c.Detection.Shells); err != nil {
 			return err
 		}
 	} else if err := validateUniqueListAllowEmpty("detection.web_services", c.Detection.WebServices); err != nil {

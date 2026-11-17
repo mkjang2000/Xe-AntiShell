@@ -135,8 +135,6 @@ func (p *Prober) deriveObservationCapabilities(report *model.CapabilityReport) {
 	}
 	report.Capabilities[ProcessExecCapability] = capability(ProcessExecCapability, state, provider, reason, nil)
 	report.Capabilities[ProcessLineageCapability] = capability(ProcessLineageCapability, state, provider, lineageReason, nil)
-	report.Capabilities[CredentialCapability] = capability(CredentialCapability, model.CapabilityUnsupported,
-		"standalone-mvp", "credential-change collection is not implemented in this MVP", nil)
 	observationState := model.CapabilityUnsupported
 	observationProvider := "tetragon"
 	observationReason := "Tetragon is required for optional operation policies"
@@ -144,7 +142,7 @@ func (p *Prober) deriveObservationCapabilities(report *model.CapabilityReport) {
 		observationState = model.CapabilityLimited
 		observationReason = "optional owned Tetragon policies require load and real event verification"
 	}
-	for _, name := range []string{FileCapability, NetworkCapability, InterpreterCapability} {
+	for _, name := range []string{CredentialCapability, FileCapability, NetworkCapability, InterpreterCapability} {
 		report.Capabilities[name] = capability(name, observationState, observationProvider, observationReason, nil)
 	}
 	if observationState == model.CapabilityUnsupported && (audit.State == model.CapabilitySupported || audit.State == model.CapabilityLimited) {

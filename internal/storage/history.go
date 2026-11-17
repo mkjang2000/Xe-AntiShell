@@ -32,6 +32,11 @@ type historyCursor struct {
 }
 
 func (s *Store) History(ctx context.Context, q model.HistoryQuery) (model.HistoryPage, error) {
+	if q.EventType != "" {
+		if q.Kind != "events" || len(q.EventType) > 128 || strings.Trim(q.EventType, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") != "" {
+			return model.HistoryPage{}, errors.New("invalid event type filter")
+		}
+	}
 	if q.Kind != "events" && q.Kind != "findings" {
 		return model.HistoryPage{}, errors.New("kind must be events or findings")
 	}
@@ -56,6 +61,10 @@ func (s *Store) History(ctx context.Context, q model.HistoryQuery) (model.Histor
 	}
 	var conditions []string
 	var args []any
+	if q.EventType != "" {
+		conditions = append(conditions, "e.event_type = ?")
+		args = append(args, q.EventType)
+	}
 	if q.Kind == "findings" && q.ExcludeSelfTests {
 		conditions = append(conditions, "NOT "+findingSelfTestSQL)
 		args = append(args, selfTestService, selfTestService)

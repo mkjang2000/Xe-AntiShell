@@ -5,6 +5,7 @@ import "encoding/json"
 type HistoryQuery struct {
 	Kind             string `json:"kind"`
 	Service          string `json:"service,omitempty"`
+	EventType        string `json:"event_type,omitempty"`
 	Search           string `json:"q,omitempty"`
 	Severity         string `json:"severity,omitempty"`
 	Cursor           string `json:"cursor,omitempty"`

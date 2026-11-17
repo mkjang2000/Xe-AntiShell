@@ -40,7 +40,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	query := model.HistoryQuery{Kind: values.Get("kind"), Service: values.Get("service"), Search: values.Get("q"), Severity: values.Get("severity"), Cursor: values.Get("cursor"), Limit: limit, ExcludeSelfTests: excludeSelfTests}
+	query := model.HistoryQuery{Kind: values.Get("kind"), EventType: values.Get("event_type"), Service: values.Get("service"), Search: values.Get("q"), Severity: values.Get("severity"), Cursor: values.Get("cursor"), Limit: limit, ExcludeSelfTests: excludeSelfTests}
 	page, err := backend.History(r.Context(), query)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -60,7 +60,7 @@ func (s *Server) handleServices(w http.ResponseWriter, r *http.Request) {
 
 func (c *Client) History(ctx context.Context, q model.HistoryQuery) (model.HistoryPage, error) {
 	var result model.HistoryPage
-	values := url.Values{"kind": {q.Kind}, "service": {q.Service}, "q": {q.Search}, "severity": {q.Severity}, "cursor": {q.Cursor}, "limit": {strconv.Itoa(q.Limit)}}
+	values := url.Values{"kind": {q.Kind}, "event_type": {q.EventType}, "service": {q.Service}, "q": {q.Search}, "severity": {q.Severity}, "cursor": {q.Cursor}, "limit": {strconv.Itoa(q.Limit)}}
 	if q.ExcludeSelfTests {
 		values.Set("exclude_self_tests", "1")
 	}

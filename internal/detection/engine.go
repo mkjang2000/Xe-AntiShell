@@ -22,6 +22,8 @@ type Engine struct {
 	allowedPairs         map[string]struct{}
 	maxDepth             int
 	extendedProcessRules bool
+	privilegeRules       bool
+	rootExecAlerts       string
 }
 
 // Options configures an immutable detector snapshot. ExtendedProcessRules is
@@ -32,12 +34,16 @@ type Options struct {
 	Shells               []string
 	AllowedPairs         []string
 	ExtendedProcessRules bool
+	PrivilegeRules       bool
+	RootExecAlerts       string
 }
 
 // NewWithOptions preserves executable service aliases used by NewWithServices.
 func NewWithOptions(options Options) *Engine {
 	engine := NewWithServices(options.WebExecutables, options.WebServices, options.Shells, options.AllowedPairs)
 	engine.extendedProcessRules = options.ExtendedProcessRules
+	engine.privilegeRules = options.PrivilegeRules
+	engine.rootExecAlerts = options.RootExecAlerts
 	return engine
 }
 
@@ -94,6 +100,16 @@ func processName(process model.Process) string {
 }
 
 func (e *Engine) Evaluate(event model.Event, lineage AncestorProvider) []model.Finding {
+	findings := e.evaluateWeb(event, lineage)
+	// Existing web findings already report this execution; retain one primary
+	// finding instead of duplicating the same root exec in the global profile.
+	if len(findings) > 0 && event.Type == "process.exec" {
+		return findings
+	}
+	return append(findings, e.evaluatePrivilege(event, lineage)...)
+}
+
+func (e *Engine) evaluateWeb(event model.Event, lineage AncestorProvider) []model.Finding {
 	if event.Type == "process.exec_observation" && e.extendedProcessRules {
 		return e.evaluateExtended(event, lineage)
 	}
