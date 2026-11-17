@@ -1,6 +1,6 @@
 Name:           xe-antishell
 Version:        0.1.0
-Release:        20%{?dist}
+Release:        21%{?dist}
 Summary:        Standalone Linux host security monitoring agent
 License:        MIT AND Apache-2.0 AND BSD-3-Clause AND BSD-2-Clause AND BSD-1-Clause AND SunPro
 URL:            https://github.com/mkjang2000/Xe-AntiShell
@@ -67,6 +67,10 @@ fi
 %systemd_postun_with_restart sentinel-web.service
 
 %changelog
+* Tue Nov 17 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-21
+- Separate local process observation times from source lifecycle timestamps
+- Preserve valid observation bounds and idempotence for delayed Tetragon events
+
 * Tue Nov 17 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-20
 - Probe the configured collector executable instead of unrelated PATH candidates
 - Present live collection separately from passive diagnostic mismatches

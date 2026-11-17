@@ -451,7 +451,7 @@ func (s *Service) processEvent(ctx context.Context, event *model.Event) error {
 		s.lineage.Observe(event)
 		s.recordRuntimeEvent(*event)
 	case "process.exit":
-		if process, ok := s.lineage.Exit(event.Process.Key, event.Process.PID, event.EventTime); ok {
+		if process, ok := s.lineage.ExitObserved(event.Process.Key, event.Process.PID, event.EventTime, event.IngestTime); ok {
 			event.Process = process
 		}
 	}

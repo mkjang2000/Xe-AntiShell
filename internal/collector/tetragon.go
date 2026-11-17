@@ -298,13 +298,20 @@ func NormalizeTetragonJSON(raw []byte, ingestTime time.Time, metadata Metadata) 
 		event.ID = identity.SourceEventID(event.BootID, event.Source, event.Type, event.SourceEventID)
 	}
 
-	event.Process = tetragonToProcess(source, event.EventTime)
+	// Observation times describe receipt by this agent, separately from source
+	// lifecycle timestamps that may be delayed or ahead of the local clock.
+	observedAt := event.IngestTime
+	if observedAt.IsZero() {
+		// Retain the historical fallback for callers without an ingest timestamp.
+		observedAt = event.EventTime
+	}
+	event.Process = tetragonToProcess(source, observedAt)
 	parentConsistent := true
 	if source.ParentExecID != "" {
 		event.Process.ParentKey = identity.ProcessKey(event.BootID, model.Process{ExecID: source.ParentExecID}, event.EventTime)
 	}
 	if parent != nil && parent.PID > 0 {
-		parentProcess := tetragonToProcess(*parent, event.EventTime)
+		parentProcess := tetragonToProcess(*parent, observedAt)
 		event.Process.PPID = parentProcess.PID
 		if parent.ExecID != "" {
 			if source.ParentExecID == "" || source.ParentExecID == parent.ExecID {
@@ -346,7 +353,7 @@ func NormalizeTetragonJSON(raw []byte, ingestTime time.Time, metadata Metadata) 
 			continue
 		}
 		seen[contextSource.ExecID] = struct{}{}
-		contextProcess := tetragonToProcess(contextSource, event.EventTime)
+		contextProcess := tetragonToProcess(contextSource, observedAt)
 		contextProcess.Key = identity.ProcessKey(event.BootID, contextProcess, event.EventTime)
 		if contextSource.ParentExecID != "" {
 			contextProcess.ParentKey = identity.ProcessKey(event.BootID, model.Process{ExecID: contextSource.ParentExecID}, event.EventTime)

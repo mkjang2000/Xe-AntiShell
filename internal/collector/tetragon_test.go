@@ -55,6 +55,135 @@ func TestNormalizeTetragonProcessExit(t *testing.T) {
 	}
 }
 
+func TestNormalizeTetragonExecObservationTimesUseIngestion(t *testing.T) {
+	ingested := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	for _, ahead := range []time.Duration{time.Nanosecond, 5 * time.Second} {
+		t.Run(ahead.String(), func(t *testing.T) {
+			sourceTime := ingested.Add(ahead)
+			source := tetragonProcess{ExecID: "source:42", PID: 42, Binary: "/usr/bin/id", StartTime: sourceTime.Add(-time.Second)}
+			parent := tetragonProcess{ExecID: "parent:41", ParentExecID: "ancestor:40", PID: 41, Binary: "/usr/bin/bash", StartTime: ingested.Add(-time.Minute)}
+			ancestor := tetragonProcess{ExecID: "ancestor:40", PID: 40, Binary: "/usr/sbin/service", StartTime: ingested.Add(-time.Hour)}
+			raw, err := json.Marshal(tetragonEnvelope{Time: sourceTime, ProcessExec: &tetragonProcessExec{
+				Process: source, Parent: &parent, Ancestors: []tetragonProcess{ancestor},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			event, err := NormalizeTetragonJSON(raw, ingested, Metadata{BootID: "boot"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !event.EventTime.Equal(sourceTime) || !event.Process.StartTime.Equal(source.StartTime) || event.Process.ExitedAt != nil {
+				t.Fatalf("source lifecycle timestamps changed: %+v", event)
+			}
+			if event.SourceEventID != "exec:source:42" || !bytes.Equal(event.RawJSON, raw) || len(event.Ancestors) != 2 {
+				t.Fatalf("source identity, raw payload, or ancestry changed: %+v", event)
+			}
+			for _, process := range append([]model.Process{event.Process}, event.Ancestors...) {
+				if !process.FirstSeen.Equal(ingested) || !process.LastSeen.Equal(ingested) {
+					t.Fatalf("observation times follow the source clock: %+v", process)
+				}
+			}
+			if !event.Ancestors[0].StartTime.Equal(parent.StartTime) || !event.Ancestors[1].StartTime.Equal(ancestor.StartTime) {
+				t.Fatal("ancestor source start times changed")
+			}
+			retryTime := ingested.Add(time.Minute)
+			retry, err := NormalizeTetragonJSON(raw, retryTime, Metadata{BootID: "boot"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if retry.ID != event.ID || retry.SourceEventID != event.SourceEventID || retry.Process.Key != event.Process.Key || retry.Process.ParentKey != event.Process.ParentKey {
+				t.Fatal("local observation time changed source or process identity")
+			}
+			for index, process := range append([]model.Process{retry.Process}, retry.Ancestors...) {
+				if !process.FirstSeen.Equal(retryTime) || !process.LastSeen.Equal(retryTime) {
+					t.Fatalf("retry observation times were not refreshed: %+v", process)
+				}
+				if index > 0 && process.Key != event.Ancestors[index-1].Key {
+					t.Fatal("local observation time changed ancestor identity")
+				}
+			}
+		})
+	}
+}
+
+func TestNormalizeTetragonDelayedExitPreservesSourceLifecycle(t *testing.T) {
+	base := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	parent := tetragonProcess{ExecID: "parent:41", PID: 41, Binary: "/usr/bin/bash", StartTime: base.Add(-time.Minute)}
+	childRaw, err := json.Marshal(tetragonEnvelope{Time: base.Add(2 * time.Second), ProcessExec: &tetragonProcessExec{
+		Process: tetragonProcess{ExecID: "child:42", PID: 42, Binary: "/usr/bin/id"}, Parent: &parent,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := NormalizeTetragonJSON(childRaw, base.Add(3*time.Second), Metadata{BootID: "boot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exited := base.Add(time.Second)
+	raw, err := json.Marshal(tetragonEnvelope{Time: base.Add(2 * time.Second), ProcessExit: &tetragonProcessExit{Process: parent, Time: exited}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ingested := base.Add(4 * time.Second)
+	event, err := NormalizeTetragonJSON(raw, ingested, Metadata{BootID: "boot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !event.EventTime.Equal(exited) || event.Process.ExitedAt == nil || !event.Process.ExitedAt.Equal(exited) || !event.Process.StartTime.Equal(parent.StartTime) {
+		t.Fatalf("delayed source exit lifecycle was changed: %+v", event)
+	}
+	if !event.Process.FirstSeen.Equal(ingested) || !event.Process.LastSeen.Equal(ingested) || !event.Process.FirstSeen.After(child.Ancestors[0].FirstSeen) {
+		t.Fatalf("delayed exit observations did not follow ingestion: %+v", event.Process)
+	}
+	if event.Process.Key != child.Ancestors[0].Key || event.SourceEventID != "exit:parent:41:"+exited.Format(time.RFC3339Nano) || !bytes.Equal(event.RawJSON, raw) {
+		t.Fatal("delayed exit source identity or raw payload changed")
+	}
+	retry, err := NormalizeTetragonJSON(raw, ingested.Add(time.Minute), Metadata{BootID: "boot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry.ID != event.ID || retry.SourceEventID != event.SourceEventID || retry.Process.Key != event.Process.Key || !retry.EventTime.Equal(exited) || !retry.Process.ExitedAt.Equal(exited) {
+		t.Fatal("retry changed delayed exit lifecycle or identity")
+	}
+}
+
+func TestNormalizeTetragonZeroIngestRetainsSourceFallback(t *testing.T) {
+	sourceTime := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name    string
+		eventAt time.Time
+		startAt time.Time
+		want    time.Time
+	}{
+		{name: "event", eventAt: sourceTime, startAt: sourceTime.Add(-time.Second), want: sourceTime},
+		{name: "start", startAt: sourceTime, want: sourceTime},
+		{name: "missing"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := json.Marshal(tetragonEnvelope{Time: test.eventAt, ProcessExec: &tetragonProcessExec{
+				Process: tetragonProcess{ExecID: "source:42", PID: 42, Binary: "/usr/bin/id", StartTime: test.startAt},
+				Parent:  &tetragonProcess{ExecID: "parent:41", PID: 41, Binary: "/usr/bin/bash"},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			event, err := NormalizeTetragonJSON(raw, time.Time{}, Metadata{BootID: "boot"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !event.IngestTime.IsZero() || !event.EventTime.Equal(test.want) || !event.Process.StartTime.Equal(test.startAt) {
+				t.Fatalf("missing ingest invented a lifecycle or ingest date: %+v", event)
+			}
+			for _, process := range append([]model.Process{event.Process}, event.Ancestors...) {
+				if !process.FirstSeen.Equal(test.want) || !process.LastSeen.Equal(test.want) {
+					t.Fatalf("zero-ingest observation fallback changed: %+v", process)
+				}
+			}
+		})
+	}
+}
+
 func TestTetragonUsesEffectiveUIDForRootShell(t *testing.T) {
 	raw := []byte(`{"time":"2026-01-02T03:04:05Z","process_exec":{"process":{"exec_id":"id:1","pid":42,"uid":0,"binary":"/usr/bin/bash"},"parent":{"exec_id":"parent:1","pid":41}}}`)
 	event, err := NormalizeTetragonJSON(raw, time.Now(), Metadata{BootID: "boot"})

@@ -61,8 +61,7 @@ func (t *Tracker) Restore(processes []model.Process) {
 
 // newerProcess provides a deterministic restart-time tie-break for collectors
 // such as Linux audit whose event time may have only millisecond precision.
-// Realtime Observe calls always replace current directly, so this comparison is
-// needed only while restoring several durable observations for one PID.
+// It is also used for source context, which can arrive after a newer execution.
 func newerProcess(candidate, current model.Process) bool {
 	if !candidate.StartTime.Equal(current.StartTime) {
 		return candidate.StartTime.After(current.StartTime)
@@ -86,16 +85,11 @@ func (t *Tracker) Observe(event *model.Event) model.Process {
 	if process.StartTime.IsZero() {
 		process.StartTime = event.EventTime
 	}
-	if process.FirstSeen.IsZero() {
-		process.FirstSeen = event.IngestTime
-		if process.FirstSeen.IsZero() {
-			process.FirstSeen = time.Now().UTC()
-		}
+	observedAt := event.IngestTime
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
 	}
-	process.LastSeen = process.FirstSeen
-	if !event.IngestTime.IsZero() {
-		process.LastSeen = event.IngestTime
-	}
+	mergeObservationTimes(&process, observedAt)
 
 	if process.ParentKey == "" && process.PPID > 0 {
 		if parentKey, ok := t.current[process.PPID]; ok {
@@ -125,9 +119,7 @@ func (t *Tracker) Observe(event *model.Event) model.Process {
 	}
 
 	if previous, ok := t.byKey[process.Key]; ok {
-		if process.FirstSeen.After(previous.FirstSeen) || process.FirstSeen.IsZero() {
-			process.FirstSeen = previous.FirstSeen
-		}
+		mergeObservationTimes(&process, previous.FirstSeen, previous.LastSeen)
 		if process.ParentKey == "" {
 			process.ParentKey = previous.ParentKey
 		}
@@ -148,6 +140,7 @@ func (t *Tracker) ObserveContext(process model.Process) model.Process {
 	if process.Key == "" || process.PID < 1 {
 		return process
 	}
+	firstSeen, lastSeen := process.FirstSeen, process.LastSeen
 	if previous, exists := t.byKey[process.Key]; exists {
 		if previous.OriginService == "" {
 			previous.OriginService = process.OriginService
@@ -157,6 +150,7 @@ func (t *Tracker) ObserveContext(process model.Process) model.Process {
 		}
 		process = previous
 	}
+	mergeObservationTimes(&process, firstSeen, lastSeen)
 	if process.ParentKey != "" {
 		if parent, exists := t.byKey[process.ParentKey]; exists {
 			if process.OriginService == "" {
@@ -177,6 +171,13 @@ func (t *Tracker) ObserveContext(process model.Process) model.Process {
 }
 
 func (t *Tracker) Exit(processKey string, pid int, at time.Time) (model.Process, bool) {
+	return t.ExitObserved(processKey, pid, at, at)
+}
+
+// ExitObserved preserves the source's exit time separately from the time this
+// agent observed its delivery. Delayed exits and wall-clock changes cannot
+// reverse the first/last bounds or discard previous observations.
+func (t *Tracker) ExitObserved(processKey string, pid int, exitedAt, observedAt time.Time) (model.Process, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if processKey == "" {
@@ -186,13 +187,39 @@ func (t *Tracker) Exit(processKey string, pid int, at time.Time) (model.Process,
 	if !ok {
 		return model.Process{}, false
 	}
-	process.ExitedAt = &at
-	process.LastSeen = at
+	process.ExitedAt = &exitedAt
+	mergeObservationTimes(&process, observedAt)
 	if t.current[process.PID] == processKey {
 		delete(t.current, process.PID)
 	}
 	t.retain(process)
 	return process, true
+}
+
+// mergeObservationTimes takes the envelope of actual observation timestamps.
+// Legacy context can contain source times and observations can arrive out of
+// order; selecting their bounds does not invent a replacement timestamp.
+func mergeObservationTimes(process *model.Process, observedAt ...time.Time) {
+	if process.FirstSeen.IsZero() {
+		process.FirstSeen = process.LastSeen
+	}
+	if process.LastSeen.IsZero() {
+		process.LastSeen = process.FirstSeen
+	}
+	if process.LastSeen.Before(process.FirstSeen) {
+		process.FirstSeen, process.LastSeen = process.LastSeen, process.FirstSeen
+	}
+	for _, at := range observedAt {
+		if at.IsZero() {
+			continue
+		}
+		if process.FirstSeen.IsZero() || at.Before(process.FirstSeen) {
+			process.FirstSeen = at
+		}
+		if process.LastSeen.IsZero() || at.After(process.LastSeen) {
+			process.LastSeen = at
+		}
+	}
 }
 
 // retain is called only while mu is locked. Keeping the eviction queue in a

@@ -105,6 +105,16 @@ func sameSourceEvent(left, right model.Event) bool {
 	left.IngestTime, right.IngestTime = time.Time{}, time.Time{}
 	left.Process.FirstSeen, right.Process.FirstSeen = time.Time{}, time.Time{}
 	left.Process.LastSeen, right.Process.LastSeen = time.Time{}, time.Time{}
+	// Ancestor observation bounds are local too. Copy the slices before
+	// clearing them so value comparison never rewrites caller-owned evidence.
+	left.Ancestors = append([]model.Process(nil), left.Ancestors...)
+	right.Ancestors = append([]model.Process(nil), right.Ancestors...)
+	for index := range left.Ancestors {
+		left.Ancestors[index].FirstSeen, left.Ancestors[index].LastSeen = time.Time{}, time.Time{}
+	}
+	for index := range right.Ancestors {
+		right.Ancestors[index].FirstSeen, right.Ancestors[index].LastSeen = time.Time{}, time.Time{}
+	}
 	leftJSON, leftErr := json.Marshal(left)
 	rightJSON, rightErr := json.Marshal(right)
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
