@@ -46,10 +46,11 @@ sudo ./install.sh --build --enable-web
 
 # Or build once and install the resulting RPM on another compatible host.
 make rpm
-sudo ./install.sh --rpm ./dist/rpm/xe-antishell-0.1.0-19.el9.x86_64.rpm --enable-web
+sudo ./install.sh --rpm /path/to/built-agent.rpm --enable-web
 ```
 
-The RPM filename depends on the build host's distribution and architecture.
+Use the exact RPM path printed by the builder; its name depends on the release,
+build host's distribution and architecture.
 `--rpm` and `--build` are mutually exclusive. Use `./install.sh --help` for all
 options. Installation requires root, RPM and a running systemd manager. Source
 building additionally needs Bash, an installed Go 1.22+ toolchain, `rpmbuild`,
