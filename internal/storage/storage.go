@@ -71,10 +71,12 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("storage: open sqlite: %w", err)
 	}
-	// A small pool permits concurrent API reads while SQLite still serializes
-	// writes. Connection-local PRAGMAs are carried in the DSN above.
-	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(4)
+	// One owned connection queues daemon writes before SQLite rather than
+	// letting policy, delivery, retention and evidence writers contend for its
+	// lock. Reads queue too; callers retain their context cancellation. Methods
+	// must close query rows before issuing a separate query or transaction.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	store := &Store{db: db}
 	if err := db.PingContext(ctx); err != nil {

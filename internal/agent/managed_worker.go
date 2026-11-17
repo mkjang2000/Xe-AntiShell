@@ -22,9 +22,24 @@ func (s *Service) startManagedWorkers(ctx context.Context) {
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		s.managedError("identity", "stored central identity is invalid")
 	}
-	for _, worker := range []func(context.Context){s.managedDeliveryLoop, s.managedHeartbeatLoop, s.managedPolicyLoop, s.managedUpdateLoop} {
+	// Keep durable policy restoration above synchronous. Spread optional work
+	// across startup; collector acceptance and the local API remain immediate.
+	for _, worker := range []struct {
+		delay time.Duration
+		run   func(context.Context)
+	}{
+		{time.Second, s.managedDeliveryLoop},
+		{3 * time.Second, s.managedHeartbeatLoop},
+		{5 * time.Second, s.managedPolicyLoop},
+		{7 * time.Second, s.managedUpdateLoop},
+	} {
 		s.producerWG.Add(1)
-		go func(run func(context.Context)) { defer s.producerWG.Done(); run(ctx) }(worker)
+		go func(delay time.Duration, run func(context.Context)) {
+			defer s.producerWG.Done()
+			if managedWait(ctx, delay) {
+				run(ctx)
+			}
+		}(worker.delay, worker.run)
 	}
 }
 

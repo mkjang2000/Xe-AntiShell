@@ -57,7 +57,7 @@ func (s *Service) recordRuntimeEvent(event model.Event) {
 
 func (s *Service) runtimeSnapshot() (model.AgentStatus, model.CapabilityReport) {
 	s.statusMu.RLock()
-	status := s.status
+	status := s.operationStatus(s.status)
 	report := cloneCapabilityReport(s.report)
 	evidence := s.runtimeEvidence[sourceForCollector(status.Collector)]
 	s.statusMu.RUnlock()

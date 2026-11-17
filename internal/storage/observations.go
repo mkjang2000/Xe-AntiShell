@@ -1,0 +1,98 @@
+package storage
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"modernc.org/sqlite"
+
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
+	"xe-antishell/internal/model"
+)
+
+const observationBeginAttempts = 2
+const observationBeginBackoff = 25 * time.Millisecond
+
+// beginObservation retries only writer reservation, before any event data or
+// transaction side effect exists. Never replay the transaction after a body or
+// COMMIT error: database/sql may already have released that transaction.
+// Each SQLite wait retains the configured five-second busy timeout; at most
+// two attempts plus this cancellable backoff are made. Pool acquisition also
+// respects the caller's context.
+func beginObservation(ctx context.Context, begin func(context.Context, *sql.TxOptions) (*sql.Tx, error)) (*sql.Tx, error) {
+	for attempt := 0; ; attempt++ {
+		tx, err := begin(ctx, nil)
+		if err == nil || attempt+1 >= observationBeginAttempts || !sqliteContention(err) {
+			return tx, err
+		}
+		timer := time.NewTimer(observationBeginBackoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func sqliteContention(err error) bool {
+	var value *sqlite.Error
+	if !errors.As(err, &value) {
+		return false
+	}
+	// SQLite extended result codes preserve the primary code in the low byte.
+	primary := value.Code() & 0xff
+	return primary == 5 || primary == 6 // SQLITE_BUSY / SQLITE_LOCKED
+}
+
+// PersistObservation commits evidence, its derived findings and its delivery
+// obligation together. A crash cannot strand an accepted managed observation.
+func (s *Store) PersistObservation(ctx context.Context, event model.Event, findings []model.Finding) error {
+	tx, err := beginObservation(ctx, s.db.BeginTx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	child := &Store{db: s.db, tx: tx}
+	inserted, err := child.SaveEventResult(ctx, event)
+	if err != nil {
+		return err
+	}
+	for _, process := range append(append([]model.Process(nil), event.Ancestors...), event.Process) {
+		if process.Key != "" && process.PID > 0 {
+			var err error
+			if isContextObservation(event.Type) {
+				err = child.saveProcessContext(ctx, event.BootID, process)
+			} else {
+				err = child.SaveProcess(ctx, event.BootID, process)
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+	for _, finding := range findings {
+		if err := child.SaveFinding(ctx, finding); err != nil {
+			return err
+		}
+	}
+	if inserted {
+		var enabled int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM managed_state").Scan(&enabled); err != nil {
+			return err
+		}
+		if enabled > 0 {
+			payload, err := json.Marshal(managed.EventBundle{Event: event, Findings: findings})
+			if err != nil {
+				return err
+			}
+			if err := child.enqueue(ctx, managed.RecordKindEventBundle, event.ID, payload); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}

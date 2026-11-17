@@ -35,9 +35,6 @@ var (
 )
 
 const auditShutdownFlushTimeout = 2 * time.Second
-const retentionInterval = 6 * time.Hour
-const retentionBatchSize = 1000
-const maxRetentionBatchesPerRun = 10
 
 type CapabilityProber interface {
 	Probe(context.Context) (model.CapabilityReport, error)
@@ -73,6 +70,7 @@ type Service struct {
 	status          model.AgentStatus
 	report          model.CapabilityReport
 	runtimeEvidence map[string]sourceRuntimeEvidence
+	operationErrors map[string]string
 
 	collectorMu sync.Mutex
 	collector   collector.Collector
@@ -402,109 +400,6 @@ func (s *Service) Submit(ctx context.Context, event model.Event) error {
 	}
 }
 
-func (s *Service) processLoop() {
-	defer s.processorWG.Done()
-	for {
-		select {
-		case event := <-s.eventQueue:
-			s.processQueuedEvent(event)
-		case <-s.processorStop:
-			for {
-				select {
-				case event := <-s.eventQueue:
-					s.processQueuedEvent(event)
-				default:
-					return
-				}
-			}
-		}
-	}
-}
-
-func (s *Service) processQueuedEvent(event model.Event) {
-	if err := s.processEvent(context.Background(), &event); err != nil {
-		if errors.Is(err, ErrInvalidEvent) {
-			s.dropped.Add(1)
-			s.updateCounters()
-			return
-		}
-		s.setRuntimeState(model.AgentModeError, model.HealthError, s.currentCollectorName(), err)
-	}
-}
-
-func (s *Service) processEvent(ctx context.Context, event *model.Event) error {
-	detection := s.detectionState.Load()
-	if err := s.normalizeEvent(event); err != nil {
-		s.parseErrs.Add(1)
-		s.updateCounters()
-		return fmt.Errorf("%w: %v", ErrInvalidEvent, err)
-	}
-	s.recordRuntimeEvent(*event)
-	if event.Source == "tetragon" && !isOperationEvent(event.Type) {
-		s.observeTetragonAncestors(ctx, event)
-	}
-
-	switch event.Type {
-	case "process.exec":
-		if event.Process.PID > 0 && event.Process.OriginService == "" {
-			if origin, err := s.processSource.OriginService(ctx, event.Process.PID); err == nil {
-				event.Process.OriginService = origin
-			}
-		}
-		if event.Source == "audit" && s.config.Collector.Audit.OnlyDetectionOrigins {
-			if _, matched := detection.engine.MatchWebOrigin(*event, s.lineage); !matched {
-				return nil
-			}
-		}
-		s.lineage.Observe(event)
-		s.recordRuntimeEvent(*event)
-	case "process.exec_observation", "file.write", "network.connect":
-		if err := s.observeOperationContext(ctx, event); err != nil {
-			return err
-		}
-	case "process.exit":
-		if process, ok := s.lineage.ExitObserved(event.Process.Key, event.Process.PID, event.EventTime, event.IngestTime); ok {
-			event.Process = process
-		}
-	}
-	if event.Source == "tetragon" && !s.retainTetragonEventWithDetector(*event, detection.engine) {
-		return nil
-	}
-
-	var findings []model.Finding
-	if detection.enabled {
-		findings = detection.engine.Evaluate(*event, s.lineage)
-		s.applyResponseDecisions(findings, detection.policy)
-		for index := range findings {
-			if previous, err := s.store.GetFinding(ctx, findings[index].ID); err == nil && (previous.ResponseDecision == "sigterm_sent" || previous.ResponseDecision == "refused" || previous.ResponseDecision == "not_repeated") {
-				findings[index] = previous
-			}
-		}
-	}
-	// Evidence, derived findings, and managed delivery are one durable unit.
-	if err := s.store.PersistObservation(ctx, *event, findings); err != nil {
-		return err
-	}
-	if err := s.executeResponses(ctx, *event, findings, detection.policy); err != nil {
-		return err
-	}
-	s.markEventProcessed(event.IngestTime)
-	return nil
-}
-
-func (s *Service) markEventProcessed(at time.Time) {
-	s.statusMu.Lock()
-	defer s.statusMu.Unlock()
-	s.status.LastEventAt = &at
-	if s.status.Mode == model.AgentModeActive && s.bootstrapErr == nil {
-		s.status.Health = model.HealthHealthy
-	} else if s.status.Mode == model.AgentModeDegraded {
-		s.status.Health = model.HealthDegraded
-	}
-	s.status.Dropped = s.dropped.Load()
-	s.status.ParseErrors = s.parseErrs.Load()
-}
-
 func (s *Service) setRuntimeState(mode model.AgentMode, health model.Health, collectorName string, err error) {
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
@@ -667,58 +562,6 @@ func (s *Service) flushAuditLoop(ctx context.Context) {
 			}
 		}
 	}
-}
-
-func (s *Service) retentionLoop(ctx context.Context) {
-	defer s.producerWG.Done()
-	run := func() {
-		cutoff := time.Now().UTC().AddDate(0, 0, -s.config.Limits.RetentionDays)
-		for batch := 0; batch < maxRetentionBatchesPerRun; batch++ {
-			deleted, err := s.store.DeleteEventsBefore(ctx, cutoff, retentionBatchSize)
-			if err != nil {
-				if ctx.Err() == nil {
-					s.recordOperationalError(fmt.Errorf("event retention: %w", err))
-				}
-				return
-			}
-			if deleted < retentionBatchSize {
-				break
-			}
-		}
-		for batch := 0; batch < maxRetentionBatchesPerRun; batch++ {
-			deleted, err := s.store.DeleteProcessesBefore(ctx, cutoff, retentionBatchSize)
-			if err != nil {
-				if ctx.Err() == nil {
-					s.recordOperationalError(fmt.Errorf("process retention: %w", err))
-				}
-				return
-			}
-			if deleted < retentionBatchSize {
-				break
-			}
-		}
-	}
-	run()
-	ticker := time.NewTicker(retentionInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			run()
-		}
-	}
-}
-
-func (s *Service) recordOperationalError(err error) {
-	s.statusMu.Lock()
-	defer s.statusMu.Unlock()
-	if s.status.Mode == model.AgentModeActive {
-		s.status.Mode = model.AgentModeDegraded
-	}
-	s.status.Health = model.HealthDegraded
-	s.status.LastError = err.Error()
 }
 
 func (s *Service) Shutdown(ctx context.Context) error {

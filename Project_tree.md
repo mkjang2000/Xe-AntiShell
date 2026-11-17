@@ -34,6 +34,9 @@ Xe-AntiShell/
 │   ├── agent/                     # Pipeline, runtime evidence, Tetragon context/filtering
 │   │   ├── event_normalization.go # Queue-boundary privacy, exact-proof validation and event limits
 │   │   ├── operation_events.go    # Typed operation validation and lifecycle-safe context observation
+│   │   ├── processing.go          # Durable event pipeline and persistence/response failure separation
+│   │   ├── runtime_errors.go      # Independent recoverable operation errors over collector state
+│   │   ├── retention.go           # Deferred and paced database maintenance
 │   │   └── managed_update.go      # Separate update inventory/polling/report worker
 │   ├── buildinfo/                 # Injected running RPM epoch/version/release/architecture
 │   ├── capability/                # Host/kernel feature discovery
@@ -54,7 +57,8 @@ Xe-AntiShell/
 │   ├── procfs/                    # Minimal live process/cgroup snapshot
 │   ├── releasepublish/            # Explicit publisher commands, private-key file safety and manifest handling
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
-│   ├── storage/                   # SQLite persistence and embedded migrations
+│   ├── storage/                   # Serialized SQLite persistence and embedded migrations
+│   │   ├── observations.go        # Atomic evidence/outbox save and bounded writer-reservation retry
 │   │   └── process_context.go     # Durable operation context merge preserving process lifecycle
 │   ├── updates/                   # Publisher/deployment trust, private jobs, RPM apply and collection recheck
 │   └── webpanel/                  # Authentication, monitoring APIs and embedded UI
@@ -105,6 +109,7 @@ Xe-AntiShell/
 │   ├── mit-publication.md          # MIT, bundled notices and initial public push scope
 │   ├── central-management.md      # Central integration and installer boundaries
 │   ├── managed-agent-updates.md   # Enrollment-bound RPM update staging, apply, identity and recovery
+│   ├── sqlite-startup-stability.md # Serialized SQLite, safe retry, recovery and staggered startup
 │   ├── central-agent-updates.md   # Central release catalog, rollout authorization and publisher trust separation
 │   ├── central-project-separation.md # Separate repositories/packages and safe legacy migration
 │   ├── managed-v1-and-panel-accessibility.md # Implemented v1 contracts and QA plan

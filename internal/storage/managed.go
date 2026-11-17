@@ -74,54 +74,6 @@ func (s *Store) SaveManagedState(ctx context.Context, state ManagedState) error 
 	return tx.Commit()
 }
 
-// PersistObservation commits evidence, its derived findings and its delivery
-// obligation together. A crash cannot strand an accepted managed observation.
-func (s *Store) PersistObservation(ctx context.Context, event model.Event, findings []model.Finding) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	child := &Store{db: s.db, tx: tx}
-	inserted, err := child.SaveEventResult(ctx, event)
-	if err != nil {
-		return err
-	}
-	for _, process := range append(append([]model.Process(nil), event.Ancestors...), event.Process) {
-		if process.Key != "" && process.PID > 0 {
-			var err error
-			if isContextObservation(event.Type) {
-				err = child.saveProcessContext(ctx, event.BootID, process)
-			} else {
-				err = child.SaveProcess(ctx, event.BootID, process)
-			}
-			if err != nil {
-				return err
-			}
-		}
-	}
-	for _, finding := range findings {
-		if err := child.SaveFinding(ctx, finding); err != nil {
-			return err
-		}
-	}
-	if inserted {
-		var enabled int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM managed_state").Scan(&enabled); err != nil {
-			return err
-		}
-		if enabled > 0 {
-			payload, err := json.Marshal(managed.EventBundle{Event: event, Findings: findings})
-			if err != nil {
-				return err
-			}
-			if err := child.enqueue(ctx, managed.RecordKindEventBundle, event.ID, payload); err != nil {
-				return err
-			}
-		}
-	}
-	return tx.Commit()
-}
 func (s *Store) enqueue(ctx context.Context, kind, id string, payload []byte) error {
 	if err := (managed.Record{Sequence: 1, Kind: kind, ID: id, Payload: payload}).Validate(); err != nil {
 		return err
