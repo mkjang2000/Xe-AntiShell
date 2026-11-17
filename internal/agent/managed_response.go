@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"xe-antishell/internal/identity"
-	"xe-antishell/internal/managed"
 	"xe-antishell/internal/model"
 	"xe-antishell/internal/response"
 )

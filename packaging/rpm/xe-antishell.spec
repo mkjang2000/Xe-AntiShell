@@ -1,6 +1,6 @@
 Name:           xe-antishell
 Version:        0.1.0
-Release:        15%{?dist}
+Release:        16%{?dist}
 Summary:        Standalone Linux host security monitoring agent
 License:        MIT AND Apache-2.0 AND BSD-3-Clause AND BSD-2-Clause AND BSD-1-Clause AND SunPro
 URL:            https://github.com/mkjang2000/Xe-AntiShell
@@ -20,17 +20,15 @@ security event sources, builds process lineage, and performs local detection.
 %autosetup
 
 %build
-GOTOOLCHAIN=local %{__make} static
+GOWORK=off GOTOOLCHAIN=local %{__make} static
 
 %install
 install -D -m 0750 build/sentineld %{buildroot}%{_sbindir}/sentineld
 install -D -m 0755 build/sentinel %{buildroot}%{_bindir}/sentinel
 install -D -m 0755 build/sentinel-web %{buildroot}%{_sbindir}/sentinel-web
-install -D -m 0755 build/sentinel-central %{buildroot}%{_sbindir}/sentinel-central
 install -D -m 0640 configs/sentineld.yaml %{buildroot}%{_sysconfdir}/xe-antishell/sentineld.yaml
 install -D -m 0644 packaging/systemd/sentineld.service %{buildroot}%{_unitdir}/sentineld.service
 install -D -m 0644 packaging/systemd/sentinel-web.service %{buildroot}%{_unitdir}/sentinel-web.service
-install -D -m 0644 packaging/systemd/sentinel-central.service %{buildroot}%{_unitdir}/sentinel-central.service
 install -D -m 0644 packaging/audit/xe-antishell.conf %{buildroot}%{_datadir}/xe-antishell/audit/xe-antishell.conf
 install -D -m 0644 packaging/audit/90-xe-antishell.rules %{buildroot}%{_datadir}/xe-antishell/audit/90-xe-antishell.rules
 install -d -m 0750 %{buildroot}%{_localstatedir}/lib/xe-antishell
@@ -41,7 +39,6 @@ install -d -m 0750 %{buildroot}%{_localstatedir}/lib/xe-antishell
 %{_sbindir}/sentineld
 %{_bindir}/sentinel
 %{_sbindir}/sentinel-web
-%{_sbindir}/sentinel-central
 %config(noreplace) %{_sysconfdir}/xe-antishell/sentineld.yaml
 %dir %{_datadir}/xe-antishell
 %dir %{_datadir}/xe-antishell/audit
@@ -49,31 +46,32 @@ install -d -m 0750 %{buildroot}%{_localstatedir}/lib/xe-antishell
 %{_datadir}/xe-antishell/audit/90-xe-antishell.rules
 %{_unitdir}/sentineld.service
 %{_unitdir}/sentinel-web.service
-%{_unitdir}/sentinel-central.service
 %dir %{_localstatedir}/lib/xe-antishell
 
 %pre
 getent group xe-antishell >/dev/null || groupadd -r xe-antishell
 getent passwd xe-antishell-web >/dev/null || useradd -r -g xe-antishell -d / -s /sbin/nologin -c "Xe-AntiShell web panel" xe-antishell-web
-getent group xe-antishell-central >/dev/null || groupadd -r xe-antishell-central
-getent passwd xe-antishell-central >/dev/null || useradd -r -g xe-antishell-central -d /var/lib/xe-antishell-central -s /sbin/nologin -c "Xe-AntiShell central server" xe-antishell-central
 
 %post
-%systemd_post sentineld.service sentinel-central.service
+%systemd_post sentineld.service
 
 %preun
 if [ "$1" -eq 0 ]; then
     # A managed removal must journal authorization before services stop.
     /usr/bin/sentinel managed removal-check >/dev/null || exit 1
 fi
-%systemd_preun sentineld.service sentinel-web.service sentinel-central.service
+%systemd_preun sentineld.service sentinel-web.service
 
 %postun
 %systemd_postun_with_restart sentineld.service
 %systemd_postun_with_restart sentinel-web.service
-%systemd_postun_with_restart sentinel-central.service
 
 %changelog
+* Tue Nov 17 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-16
+- Package only the host agent, local CLI and local monitoring panel
+- Transfer central binaries and service ownership to xe-antishell-central
+- Keep existing central state intact for coordinated package migration
+
 * Tue Nov 17 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-15
 - Add opt-in web-origin process behavior rules and bounded risk explanations
 - Keep extended findings detection-only with signed-policy compatibility

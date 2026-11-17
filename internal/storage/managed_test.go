@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"xe-antishell/internal/managed"
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"xe-antishell/internal/model"
 )
 

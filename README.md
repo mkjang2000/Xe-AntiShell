@@ -4,8 +4,10 @@ Xe-AntiShell is an experimental standalone or centrally managed Linux host secur
 version discovers available host capabilities, normalizes process events from
 Tetragon or Linux audit, builds local process lineage, detects web-service
 descendant shells, and exposes local evidence through a CLI.
-The optional web panel provides an authenticated, read-only view of the same
-local evidence.
+The optional local web panel provides an authenticated, read-only view of the
+same evidence. The independent
+[central project](https://github.com/mkjang2000/Xe-AntiShell-Central) owns server
+enrollment, signed policy distribution and fleet evidence storage.
 
 The current implementation is an MVP under active development. It does not
 claim complete intrusion detection and cannot make local evidence trustworthy
@@ -26,7 +28,7 @@ sudo ./install.sh --build --enable-web
 
 # Or build once and install the resulting RPM on another compatible host.
 make rpm
-sudo ./install.sh --rpm ./dist/rpm/xe-antishell-0.1.0-15.el9.x86_64.rpm --enable-web
+sudo ./install.sh --rpm ./dist/rpm/xe-antishell-0.1.0-16.el9.x86_64.rpm --enable-web
 ```
 
 The RPM filename depends on the build host's distribution and architecture.
@@ -63,7 +65,7 @@ sudo ./install.sh --rpm ./agent.rpm --enable-web \
   --recovery-file /root/agent-offline-recovery
 ```
 
-See [central operations](devdocs/analysis/managed-v1-operations.md) for central
+See [central operations](https://github.com/mkjang2000/Xe-AntiShell-Central/blob/main/devdocs/analysis/managed-v1-operations.md) for central
 initialization, enrollment, signed policies, removal authorization and recovery.
 Central setup is a separate operation; the installer enrolls an agent with an
 already initialized server. Preserve the recovery file securely outside the host.
@@ -261,11 +263,48 @@ token and recovery-code contents are validated during enrollment, after package
 installation. A subsequent setup failure is reported without undoing an already
 installed package; resolve the reported cause and retry.
 
-The v1 central service is a separate binary/database and dedicated systemd user.
-For same-host validation it listens on HTTPS `127.0.0.1:9443` and a credentialed
-operator API on `127.0.0.1:9444`. The current web panel monitors one host; central
-multi-host web administration, PostgreSQL, RBAC and certificate renewal remain
-future work. Preserve the offline recovery file outside the monitored host.
+The central service has its own project, installer, RPM and service account.
+The agent package installs only `sentineld`, `sentinel` and `sentinel-web`.
+Agent updates do not restart central, and central updates do not restart the
+agent. Both use the published
+[`protocol v0.1.0`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.0/protocol)
+module; JSON schemas, signature domains, stored identities and approved
+policies are unchanged by project separation.
+
+For same-host validation, central defaults to HTTPS `127.0.0.1:9443` and a
+credentialed operator API on `127.0.0.1:9444`. A remote-agent deployment needs a
+server certificate for its actual access name, an explicitly configured
+non-loopback HTTPS listener and separately trusted CA delivery. The operator
+API remains loopback-only. Current central administration is an API; a fleet
+web panel, PostgreSQL, RBAC and certificate renewal remain future work.
+Preserve the offline recovery file outside the monitored host.
+
+### Migrating an earlier bundled installation
+
+Packages through `0.1.0-15` owned the central binary and service too. When such
+a host has an initialized or enabled central service, the agent installer
+refuses an agent-only upgrade. Back up both databases consistently and preserve
+PKI, credentials and local unit overrides. Then install the separately built
+agent and central RPMs in **one** transaction:
+
+```sh
+sudo systemctl stop sentinel-central.service
+sudo rpm -Uvh ./xe-antishell-0.1.0-16.el9.x86_64.rpm \
+  ./xe-antishell-central-0.1.0-1.el9.x86_64.rpm
+sudo systemctl daemon-reload
+sudo systemctl enable --now sentinel-central.service
+sudo systemctl restart sentineld.service sentinel-web.service
+```
+
+The central project retains the existing binary/unit names and state directory.
+Keep the current state; run no new `init` or enrollment operation for this
+migration. Verify file owners, both services, active policy and delivery ACKs
+afterward. See [separation plan](devdocs/plans/central-project-separation.md) for
+the ownership, validation and rollback boundaries.
+
+The first central-package install may apply the distribution's unit preset;
+explicitly restore the previous enabled state. While central is briefly stopped,
+the agent continues local detection and queues records for later delivery.
 
 ## Manual audit collection
 
@@ -329,10 +368,26 @@ make rpm           # create one local RPM under dist/rpm; no host installation
 ```
 
 `make verify` requires Go 1.22+, Git, Python 3.9+, Node.js and a C compiler for Go's
-race detector. GitHub Actions runs the same command with Go 1.22 and the current
-stable Go release. The RPM builder refuses to overwrite an existing output;
+race detector. It also tests the independently tagged `protocol/` module. GitHub
+Actions runs the same command with Go 1.22 and the current stable Go release.
+Released builds pin the published protocol through go.mod/go.sum and do not
+need the central project's source tree or a sibling-directory replace. The RPM
+builder explicitly disables development workspaces and refuses to overwrite an existing output;
 choose `RPM_OUTPUT_DIR=/some/new/directory make rpm` or explicitly use the
 builder's `--force` option when replacing an artifact is intended.
+
+To exercise two isolated agent services against an independently built central
+binary, run the optional cross-project integration check:
+
+```sh
+XEAS_CENTRAL_TEST_BINARY=/path/to/Xe-AntiShell-Central/build/sentinel-central \
+  go test -race ./internal/agent -run TestIndependentCentralWithMultipleAgents -v -count=1
+```
+
+It uses temporary state, synthetic process observations and loopback ports. It
+checks enrollment, scoped policy/history, central interruption, durable replay
+and deduplication without connecting to the installed services. Separate-host
+kernel/collector testing remains a distinct pilot step.
 
 Rocky Linux 9.8 audit/Tetragon collection and RPM/systemd behavior have been
 exercised on a live host. Rocky 8/10, CentOS 7, and SELinux Enforcing still need

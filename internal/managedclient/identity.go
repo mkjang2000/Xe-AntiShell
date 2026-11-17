@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"xe-antishell/internal/managed"
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 )
 
 func GenerateCSR(agentID string) (keyPEM, csrPEM []byte, err error) {

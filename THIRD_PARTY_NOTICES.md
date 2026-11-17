@@ -13,7 +13,10 @@ below are extracted verbatim from upstream source comments.
 
 This inventory records the versions pinned in `go.mod`, reviewed for the four
 commands (`sentineld`, `sentinel`, `sentinel-web`, and `sentinel-central`) with
-Go **1.22.0**, `GOOS=linux`, `GOARCH=amd64`, and `CGO_ENABLED=0`. It includes
+Go **1.22.0**, `GOOS=linux`, `GOARCH=amd64`, and `CGO_ENABLED=0`. The original
+four-command build included `sentinel-central`; that command now belongs to the
+independent central project. The agent builds three commands and conservatively
+retains the same upstream notice set. It includes
 selected packages conservatively; compiler dead-code elimination may remove some
 of their functions from individual executables. It is not an assertion that
 every module is linked into every executable.
@@ -31,6 +34,11 @@ tags, CGO settings, or included commands. A source release does not vendor the
 Go module cache, dependency tests, generators, or upstream development tools.
 
 ## Go modules
+
+The agent additionally pins the project's own shared
+[`github.com/mkjang2000/Xe-AntiShell/protocol v0.1.0`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.1.0/protocol)
+module, under the [same project MIT terms](LICENSE). It has no third-party module
+dependencies; its runtime/standard-library notices are covered below.
 
 Versions and notices are taken from the corresponding downloaded module source,
 whose content hashes are pinned in `go.sum`. The links identify upstream source

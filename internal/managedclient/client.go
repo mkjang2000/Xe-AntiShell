@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"xe-antishell/internal/managed"
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 )
 
 const maxRequestBytes = 4 << 20

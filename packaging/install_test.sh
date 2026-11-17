@@ -12,6 +12,7 @@ token_file=$test_root/token
 recovery_file=$test_root/recovery
 XEAS_WEB_AUTH_FILE=$test_root/web-auth.json
 XEAS_WEB_PASSWORD_FILE=$test_root/web-password.txt
+XEAS_CENTRAL_STATE_DIR=$test_root/central-state
 XEAS_OS_RELEASE_FILE=$test_root/os-release
 XEAS_BUILD_SCRIPT="$test_root/build helper.sh"
 export XEAS_TEST_BUILD_CALLS=$calls
@@ -42,6 +43,10 @@ chmod 0600 "$token_file"
 require_root() { return 0; }
 mock_owner=0
 mock_installed=false
+mock_bundled_central=false
+mock_central_active=false
+mock_central_enabled=false
+mock_package_file_list=true
 mock_enroll_failure=false
 mock_systemd_version=253
 mock_systemd_running=true
@@ -60,7 +65,13 @@ rpm() {
     else printf 'xe-antishell-(none):0.1.0-10.x86_64'; fi
   elif [[ "$1" == -q ]]; then
     [[ "$mock_installed" == true ]] || return 1
-    printf 'xe-antishell-(none):0.1.0-10.x86_64'
+    if [[ "$2" == --list ]]; then
+      [[ "$mock_package_file_list" == true ]] || return 1
+      printf '/usr/sbin/sentineld\n'
+      if [[ "$mock_bundled_central" == true ]]; then
+        printf '/usr/sbin/sentinel-central\n/usr/lib/systemd/system/sentinel-central.service\n'
+      fi
+    else printf 'xe-antishell-(none):0.1.0-10.x86_64'; fi
   elif [[ "$1" == -Uvh ]]; then
     check_regular_file "${@: -1}" || return 1
   else return 1; fi
@@ -71,6 +82,10 @@ systemctl() {
     [[ "$mock_systemd_running" == true ]] || return 1
     [[ "$*" == 'show --property=Version --no-pager' ]] || return 1
     printf 'Version=%s\n' "$mock_systemd_version"
+  elif [[ "$1" == is-active && "${@: -1}" == sentinel-central.service ]]; then
+    [[ "$mock_central_active" == true ]]
+  elif [[ "$1" == is-enabled && "${@: -1}" == sentinel-central.service ]]; then
+    [[ "$mock_central_enabled" == true ]]
   elif [[ "$1" == is-active ]]; then [[ "$mock_web_active" == true ]]; fi
 }
 chown() { printf 'chown %s\n' "$*" >> "$calls"; }
@@ -154,6 +169,47 @@ rm "$XEAS_WEB_PASSWORD_FILE"
 ln -s "$token_file" "$XEAS_WEB_AUTH_FILE"
 expect_failure --rpm "$rpm_file" --enable-web
 rm "$XEAS_WEB_AUTH_FILE"
+
+# A legacy central deployment must migrate in a coordinated two-RPM transaction.
+# Presence checks never read central state or start/stop the central service.
+mock_installed=true
+mock_bundled_central=true
+mkdir "$XEAS_CENTRAL_STATE_DIR"
+printf 'CENTRAL_SECRET_NEVER_READ\n' > "$XEAS_CENTRAL_STATE_DIR/state.fixture"
+expect_failure --rpm "$rpm_file"
+[[ "$(< "$test_root/stderr")" == *'one reviewed RPM transaction'* ]]
+[[ "$(< "$test_root/stderr")" != *CENTRAL_SECRET_NEVER_READ* ]]
+expect_failure --build
+[[ "$(< "$calls")" != *'build --output-dir'* ]]
+rm "$XEAS_CENTRAL_STATE_DIR/state.fixture"
+rmdir "$XEAS_CENTRAL_STATE_DIR"
+ln -s "$test_root/missing-central-state" "$XEAS_CENTRAL_STATE_DIR"
+expect_failure --rpm "$rpm_file"
+rm "$XEAS_CENTRAL_STATE_DIR"
+mock_central_active=true
+expect_failure --rpm "$rpm_file"
+mock_central_active=false
+mock_central_enabled=true
+expect_failure --rpm "$rpm_file"
+mock_central_enabled=false
+mock_package_file_list=false
+expect_failure --rpm "$rpm_file"
+mock_package_file_list=true
+
+# An unused legacy bundle and an independently packaged central allow agent setup.
+: > "$calls"
+main --rpm "$rpm_file" > "$test_root/stdout" 2> "$test_root/stderr"
+[[ "$(< "$calls")" == *'systemctl enable --now sentineld.service'* ]]
+mock_bundled_central=false
+mkdir "$XEAS_CENTRAL_STATE_DIR"
+mock_central_active=true
+: > "$calls"
+main --rpm "$rpm_file" > "$test_root/stdout" 2> "$test_root/stderr"
+trace=$(< "$calls")
+[[ "$trace" == *'systemctl enable --now sentineld.service'* && "$trace" != *'sentinel-central.service'* ]]
+rmdir "$XEAS_CENTRAL_STATE_DIR"
+mock_central_active=false
+mock_installed=false
 
 # A checkout build obeys the helper contract and removes its private artifacts.
 : > "$calls"

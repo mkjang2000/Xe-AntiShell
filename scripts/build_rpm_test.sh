@@ -22,9 +22,12 @@ XEAS_BUILD_ROOT=$test_work/source
 
 for test_path in go.mod go.sum Makefile install.sh README.md Project_tree.md \
   LICENSE THIRD_PARTY_NOTICES.md third_party/licenses/upstream-LICENSE.txt \
+  protocol/go.mod protocol/LICENSE protocol/README.md \
+  protocol/managed/protocol.go protocol/managed/protocol_test.go protocol/model/model.go \
+  protocol/managed/testdata/legacy-policy.json \
   configs/sentineld.yaml packaging/rpm/xe-antishell.spec \
   packaging/systemd/sentineld.service packaging/systemd/sentinel-web.service \
-  packaging/systemd/sentinel-central.service packaging/audit/xe-antishell.conf \
+  packaging/audit/xe-antishell.conf \
   packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf \
   packaging/tetragon/sentineld.conf packaging/install_test.sh \
   cmd/sentineld/main.go internal/model/model.go internal/storage/schema.sql \
@@ -40,6 +43,7 @@ printf 'internal/private.go\nscripts/private_notes.py\n' > "$XEAS_BUILD_ROOT/.gi
 for test_path in .aws/credentials .codex/session.json .git/config .env \
   internal/private.go internal/site.json internal/signing.key internal/private.pem \
   internal/.private/hidden.go scripts/private_notes.py configs/hosts/real.yaml \
+  protocol/site.json protocol/signing.key protocol/.private/hidden.go \
   packaging/systemd/sentinel-central-local-ports.conf devdocs/analysis/private-host.md \
   build/sentineld dist/rpm/old.rpm; do
   mkdir -p -- "$XEAS_BUILD_ROOT/$(dirname -- "$test_path")"
@@ -69,7 +73,7 @@ MOCK
 cat > "$test_work/tools/rpmbuild" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$GOTOOLCHAIN" == local && "$CGO_ENABLED" == 0 ]] || exit 1
+[[ "$GOWORK" == off && "$GOTOOLCHAIN" == local && "$CGO_ENABLED" == 0 ]] || exit 1
 printf 'rpmbuild\n' >> "$XEAS_MOCK_CALLS"
 topdir=''; nodeps=false
 while (( $# )); do
@@ -144,8 +148,9 @@ import sys,tarfile
 with tarfile.open(sys.argv[1], 'r:gz') as archive:
     names = set(archive.getnames())
     root = 'xe-antishell-0.1.0/'
-    for expected in ['README.md','LICENSE','THIRD_PARTY_NOTICES.md','third_party/licenses/upstream-LICENSE.txt','go.mod','internal/model/model.go','internal/storage/schema.sql','configs/examples/monitor.yaml','devdocs/plans/install.md','devdocs/analysis/managed-v1-operations.md','Linux_Host_Security_Platform_Design_v0.1.md']:
+    for expected in ['README.md','LICENSE','THIRD_PARTY_NOTICES.md','third_party/licenses/upstream-LICENSE.txt','go.mod','protocol/go.mod','protocol/LICENSE','protocol/README.md','protocol/managed/protocol.go','protocol/managed/protocol_test.go','protocol/managed/testdata/legacy-policy.json','protocol/model/model.go','internal/model/model.go','internal/storage/schema.sql','configs/examples/monitor.yaml','devdocs/plans/install.md','devdocs/analysis/managed-v1-operations.md','Linux_Host_Security_Platform_Design_v0.1.md']:
         assert root+expected in names, expected
+    assert root+'packaging/systemd/sentinel-central.service' not in names
     for member in archive.getmembers():
         assert member.name.startswith(root)
         assert member.isfile()
@@ -183,6 +188,14 @@ mv "$XEAS_BUILD_ROOT/LICENSE" "$test_work/project-license-backup"
 expect_failure --output-dir "$test_work/no-output"
 [[ ! -e "$test_work/no-output" ]]
 mv "$test_work/project-license-backup" "$XEAS_BUILD_ROOT/LICENSE"
+mv "$XEAS_BUILD_ROOT/protocol/go.mod" "$test_work/protocol-module-backup"
+expect_failure --output-dir "$test_work/no-output"
+[[ ! -e "$test_work/no-output" ]]
+mv "$test_work/protocol-module-backup" "$XEAS_BUILD_ROOT/protocol/go.mod"
+ln -s "$test_work/output-file" "$XEAS_BUILD_ROOT/protocol/source-link.go"
+expect_failure --output-dir "$test_work/no-output"
+[[ ! -e "$test_work/no-output" ]]
+rm "$XEAS_BUILD_ROOT/protocol/source-link.go"
 ln -s "$test_work/output-file" "$XEAS_BUILD_ROOT/internal/source-link.go"
 expect_failure --output-dir "$test_work/no-output"
 [[ ! -e "$test_work/no-output" ]]

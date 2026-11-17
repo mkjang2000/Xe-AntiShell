@@ -14,8 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"xe-antishell/internal/localapi"
-	"xe-antishell/internal/managed"
 )
 
 func readBoundedFile(path string, maximum int, secret bool) ([]byte, error) {

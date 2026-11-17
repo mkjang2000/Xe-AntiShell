@@ -8,11 +8,13 @@ build_usage() {
   cat <<'USAGE'
 Usage: scripts/build-rpm.sh [--output-dir DIR] [--force]
 
-Build one xe-antishell RPM from this source tree. Output defaults to dist/rpm.
+Build one agent-only xe-antishell RPM. Output defaults to dist/rpm.
 --force allows replacing the same output RPM name; other files are preserved.
 
 Requires Linux, Bash, Go 1.22+, rpm/rpmbuild, systemd RPM macros, make, GNU tar,
 Python 3.9+ and Git. Go uses this installed toolchain and pinned go.mod/go.sum.
+The protocol source is included for contract verification; agent builds resolve
+the published protocol module version pinned in go.mod.
 Go module downloads may be needed when the module cache is empty.
 No package installation, service restart, firewall or enforcement change occurs.
 USAGE
@@ -59,10 +61,10 @@ build_source_paths() (
   cd -- "$XEAS_BUILD_ROOT" || return 1
   local path source_dir
   local required=(go.mod go.sum Makefile install.sh README.md Project_tree.md
-    LICENSE THIRD_PARTY_NOTICES.md
+    LICENSE THIRD_PARTY_NOTICES.md protocol/go.mod protocol/LICENSE
     configs/sentineld.yaml packaging/rpm/xe-antishell.spec
     packaging/systemd/sentineld.service packaging/systemd/sentinel-web.service
-    packaging/systemd/sentinel-central.service packaging/audit/xe-antishell.conf
+    packaging/audit/xe-antishell.conf
     packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf
     packaging/tetragon/sentineld.conf packaging/install_test.sh)
   for path in "${required[@]}"; do
@@ -79,7 +81,7 @@ build_source_paths() (
     [[ ! -L "$path" ]] || { build_fail "Source symlink is not allowed: $path"; return 1; }
     [[ ! -f "$path" ]] || printf '%s\0' "$path"
   done
-  for source_dir in cmd internal scripts testdata devdocs/plans devdocs/reviews configs/examples .github/workflows third_party/licenses; do
+  for source_dir in cmd internal protocol scripts testdata devdocs/plans devdocs/reviews configs/examples .github/workflows third_party/licenses; do
     [[ ! -L "$source_dir" ]] || { build_fail "Source directory symlink is not allowed: $source_dir"; return 1; }
     [[ -d "$source_dir" ]] || continue
     if [[ -n $(find "$source_dir" -type l -print -quit) ]]; then
@@ -87,6 +89,7 @@ build_source_paths() (
     fi
     case "$source_dir" in
       cmd|internal) find "$source_dir" -path '*/.*' -prune -o -type f \( -name '*.go' -o -name '*.sql' -o -name '*.js' -o -name '*.css' -o -name '*.html' \) -print0 ;;
+      protocol) find "$source_dir" -path '*/.*' -prune -o -type f \( -name '*.go' -o -name '*.md' -o -name 'go.sum' -o \( -path '*/testdata/*' -a -name '*.json' \) \) -print0 ;;
       scripts) find "$source_dir" -path '*/.*' -prune -o -type f \( -name '*.sh' -o -name '*.py' \) -print0 ;;
       testdata) find "$source_dir" -path '*/.*' -prune -o -type f \( -name '*.jsonl' -o -name '*.json' \) -print0 ;;
       configs/examples|.github/workflows) find "$source_dir" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 ;;
@@ -113,7 +116,7 @@ build_main() (
   [[ ! -L "$output_dir" ]] || { build_fail 'The output directory must not be a symlink.'; return 1; }
   [[ ! -e "$output_dir" || -d "$output_dir" ]] || { build_fail 'The output path is not a directory.'; return 1; }
   build_check_dependencies || return 1
-  GOTOOLCHAIN=local "$XEAS_MAKE_TOOL" -C "$XEAS_BUILD_ROOT" check-source || return 1
+  GOWORK=off GOTOOLCHAIN=local "$XEAS_MAKE_TOOL" -C "$XEAS_BUILD_ROOT" check-source || return 1
   package_name=$(awk '$1=="Name:" {print $2; exit}' "$XEAS_BUILD_ROOT/packaging/rpm/xe-antishell.spec")
   package_version=$(awk '$1=="Version:" {print $2; exit}' "$XEAS_BUILD_ROOT/packaging/rpm/xe-antishell.spec")
   [[ "$package_name" == xe-antishell && "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -142,7 +145,7 @@ build_main() (
   printf 'Building with %s. RPM database build-dependency checks are skipped after tool/macro preflight.\n' "$XEAS_GO_VERSION"
   # The SDK may be manually installed rather than registered as an RPM.
   # --nodeps affects this build only; the installer still checks runtime deps.
-  GOTOOLCHAIN=local CGO_ENABLED=0 "$XEAS_RPMBUILD_TOOL" -bb --nodeps \
+  GOWORK=off GOTOOLCHAIN=local CGO_ENABLED=0 "$XEAS_RPMBUILD_TOOL" -bb --nodeps \
     --define "_topdir $build_work" --define "_tmppath $build_work/tmp" \
     "$XEAS_BUILD_ROOT/packaging/rpm/xe-antishell.spec" || return 1
   while IFS= read -r -d '' rpm_path; do packages+=("$rpm_path"); done < <(find "$build_work/RPMS" -type f -name 'xe-antishell-*.rpm' -print0)

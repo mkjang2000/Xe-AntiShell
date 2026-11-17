@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"xe-antishell/internal/detection"
-	"xe-antishell/internal/managed"
 	"xe-antishell/internal/model"
 	"xe-antishell/internal/response"
 	"xe-antishell/internal/storage"

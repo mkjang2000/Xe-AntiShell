@@ -8,23 +8,24 @@ build:
 	go build -buildvcs=false -trimpath -o "$(BUILD_DIR)/sentineld" ./cmd/sentineld
 	go build -buildvcs=false -trimpath -o "$(BUILD_DIR)/sentinel" ./cmd/sentinel
 	go build -buildvcs=false -trimpath -o "$(BUILD_DIR)/sentinel-web" ./cmd/sentinel-web
-	go build -buildvcs=false -trimpath -o "$(BUILD_DIR)/sentinel-central" ./cmd/sentinel-central
 
 test:
 	go test ./...
+	cd protocol && go test ./...
 
 test-race:
 	go test -race ./...
+	cd protocol && go test -race ./...
 
 vet:
 	go vet ./...
+	cd protocol && go vet ./...
 
 static:
 	mkdir -p "$(BUILD_DIR)"
 	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags='-s -w' -o "$(BUILD_DIR)/sentineld" ./cmd/sentineld
 	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags='-s -w' -o "$(BUILD_DIR)/sentinel" ./cmd/sentinel
 	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags='-s -w' -o "$(BUILD_DIR)/sentinel-web" ./cmd/sentinel-web
-	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags='-s -w' -o "$(BUILD_DIR)/sentinel-central" ./cmd/sentinel-central
 
 check-tools:
 	@for tool in go gofmt git python3 node; do \
@@ -40,7 +41,7 @@ check-source:
 	fi
 
 format-check:
-	@files=$$(gofmt -l cmd internal) || exit 1; \
+	@files=$$(gofmt -l cmd internal protocol) || exit 1; \
 		if [ -n "$$files" ]; then printf 'Run gofmt on:\n%s\n' "$$files" >&2; exit 1; fi
 
 test-scripts:

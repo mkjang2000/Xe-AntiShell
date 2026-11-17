@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"xe-antishell/internal/config"
-	"xe-antishell/internal/managed"
 )
 
 func TestSummaryReportsEffectiveDetectionAndResponseMode(t *testing.T) {

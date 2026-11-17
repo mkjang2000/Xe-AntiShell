@@ -3,13 +3,15 @@
 ## Overview
 
 - Project Name: Xe-AntiShell (working name)
-- Purpose: Linux host security observation/detection, monitoring and authenticated central management
+- Purpose: Linux host security observation/detection, local monitoring and a managed-agent client
 - Repository: https://github.com/mkjang2000/Xe-AntiShell
 - Project License: MIT; upstream code retains its own notices
 - Main Language: Go
 - Runtime: Linux (`amd64` is the initial validated build target)
 - Local Database: SQLite (pure-Go driver, WAL mode)
-- Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`, `cmd/sentinel-central`
+- Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`
+- Central Project: https://github.com/mkjang2000/Xe-AntiShell-Central
+- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.1.0`
 - Build Command: `make build`, `make static`, or `make rpm`
 - Run Command: `build/sentineld --config configs/sentineld.yaml`
 - Test Command: `make verify` (source, shell/UI, vet, race tests, static build)
@@ -22,14 +24,12 @@ Xe-AntiShell/
 ├── cmd/
 │   ├── sentineld/                 # Privileged host-agent daemon entry point
 │   ├── sentinel/                  # Local CLI and audit dispatcher bridge
-│   ├── sentinel-central/          # Central PKI/bootstrap, TLS and operator API entry point
 │   └── sentinel-web/              # Unprivileged local web panel entry point
 ├── internal/
 │   ├── agent/                     # Pipeline, runtime evidence, Tetragon context/filtering
 │   ├── capability/                # Host/kernel feature discovery
 │   ├── collector/                 # Tetragon, audit, and replay adapters
 │   │   └── audit_argv.go          # Bounded count/index validation for exact exec arguments
-│   ├── central/                   # Separate central SQLite store, mTLS, policy/grant APIs
 │   ├── config/                    # Strict configuration loading and validation
 │   ├── detection/                 # Web-origin attribution and opt-in process behavior rules
 │   │   ├── classifiers.go         # Exact process/argv/path observations without command inspection
@@ -38,8 +38,7 @@ Xe-AntiShell/
 │   ├── hostmetrics/               # Bounded procfs/sysfs resource and counter-delta sampler
 │   ├── lineage/                   # Bounded process ancestry and source-context tracking
 │   ├── localapi/                  # HTTP/JSON API and client over Unix socket
-│   ├── model/                     # Collector-independent domain model
-│   ├── managed/                   # Protocol and signed policy/removal/recovery primitives
+│   ├── model/                     # Shared core aliases plus agent-only history/UI models
 │   ├── managedclient/             # Pinned-CA HTTPS enrollment and mTLS transport
 │   ├── procfs/                    # Minimal live process/cgroup snapshot
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
@@ -58,6 +57,10 @@ Xe-AntiShell/
 │   └── tetragon/                  # Reviewed standalone Tetragon/agent overrides
 ├── testdata/events/               # Controlled events and positive/legitimate process scenarios
 ├── third_party/licenses/          # Upstream Go/runtime license texts for redistribution
+├── protocol/                      # Independently tagged, stdlib-only shared Go module
+│   ├── managed/                   # Wire contracts, signatures, removal and recovery primitives
+│   │   └── testdata/              # Pre-extraction signed-policy/removal compatibility fixtures
+│   └── model/                     # Canonical core events, findings and agent status definitions
 ├── scripts/
 │   ├── build-rpm.sh               # Checked source selection and isolated local RPM build
 │   ├── build_rpm_test.sh          # Mocked tools and real source archive checks
@@ -68,6 +71,7 @@ Xe-AntiShell/
 │   ├── git-readiness.md           # Installer, source privacy, Git and validation scope
 │   ├── mit-publication.md          # MIT, bundled notices and initial public push scope
 │   ├── central-management.md      # Central integration and installer boundaries
+│   ├── central-project-separation.md # Separate repositories/packages and safe legacy migration
 │   ├── managed-v1-and-panel-accessibility.md # Implemented v1 contracts and QA plan
 │   ├── panel-light-angular.md     # Light default, restored mark and angular styling
 │   ├── operator-monitor-workflow.md # Operator hierarchy, dense records and plain feature status
@@ -197,9 +201,12 @@ auditd dispatcher
 - The local Unix HTTP/JSON API is separate from the central mTLS protocol.
   Monitoring reads are available to the local socket group; enrollment/removal
   mutations additionally require kernel-verified root peer credentials.
-- Central v1 uses a separate SQLite DB and dedicated systemd account. PostgreSQL,
-  central multi-host web administration, operator RBAC and certificate renewal
-  remain future work. Bootstrap trust is supplied before enrollment.
+- Central implementation, SQLite store, PKI, account and systemd unit belong to
+  the independent central project. The agent RPM manages no central files or
+  service hooks. Both projects pin the shared protocol release; no local-folder
+  replace is needed for released builds. Bootstrap trust precedes enrollment.
+- PostgreSQL, central multi-host web administration, operator RBAC and certificate
+  renewal remain future work in that project.
 - Approved policies and delivery ACK watermarks survive restarts; removal grants
   and recovery credentials are consumed transactionally with audit obligations.
   Direct root/kernel tampering cannot be prevented by these local controls.

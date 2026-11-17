@@ -6,6 +6,7 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 XEAS_OS_RELEASE_FILE=/etc/os-release
 XEAS_WEB_AUTH_FILE=/etc/xe-antishell/web-auth.json
 XEAS_WEB_PASSWORD_FILE=/root/xe-antishell-web-initial-password.txt
+XEAS_CENTRAL_STATE_DIR=/var/lib/xe-antishell-central
 XEAS_INSTALL_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 XEAS_BUILD_SCRIPT=$XEAS_INSTALL_ROOT/scripts/build-rpm.sh
 
@@ -33,6 +34,9 @@ change firewall rules, enable enforcement, or install Tetragon automatically.
 RPM dependencies must already be available. OS/version and kernel capabilities
 need their own validation; a successful install does not certify OS support.
 --build additionally requires the documented Go, make and rpmbuild toolchain.
+This installer installs only the agent. A legacy bundled central deployment
+must first use the documented migration with both agent and central RPMs in
+one reviewed RPM transaction; this installer stops before that upgrade.
 USAGE
 }
 
@@ -133,6 +137,27 @@ build_local_rpm() {
   "$XEAS_BUILD_SCRIPT" --output-dir "$1"
 }
 
+check_legacy_central_preflight() {
+  local installed_files path bundled=false
+  [[ -n "$1" ]] || return 0
+  installed_files=$(rpm -q --list xe-antishell 2>/dev/null) || {
+    fail 'Cannot inspect the installed xe-antishell file list before upgrade.'; return 1
+  }
+  while IFS= read -r path; do
+    case "$path" in
+      /usr/sbin/sentinel-central|/usr/lib/systemd/system/sentinel-central.service|/lib/systemd/system/sentinel-central.service)
+        bundled=true ;;
+    esac
+  done <<< "$installed_files"
+  [[ "$bundled" == true ]] || return 0
+  if [[ -e "$XEAS_CENTRAL_STATE_DIR" || -L "$XEAS_CENTRAL_STATE_DIR" ]] || \
+      systemctl is-active --quiet sentinel-central.service || \
+      systemctl is-enabled --quiet sentinel-central.service; then
+    fail 'This host has a legacy central deployment owned by the bundled xe-antishell RPM. Preserve the central state and follow the documented migration: upgrade xe-antishell and install xe-antishell-central together in one reviewed RPM transaction. An agent-only upgrade would remove the central binary and unit.'
+    return 1
+  fi
+}
+
 check_web_active() {
   # Type=simple can briefly be active before credential loading or bind fails.
   systemctl is-active --quiet sentinel-web.service || return 1
@@ -225,6 +250,8 @@ main() (
   fi
   manager_version=$(systemd_manager_version) || return 1
   if [[ "$with_web" == true ]]; then check_web_preflight "$manager_version" || return 1; fi
+  installed_nevra=$(rpm -q --queryformat "$nevra_format" xe-antishell 2>/dev/null) || installed_nevra=''
+  check_legacy_central_preflight "$installed_nevra" || return 1
   detect_os
   if [[ "$with_build" == true ]]; then
     build_directory=$(mktemp -d /tmp/xeas-install-build.XXXXXX) || return 1
@@ -241,7 +268,6 @@ main() (
   package_name=$(rpm -qp --queryformat '%{NAME}' -- "$rpm_path") || return 1
   [[ "$package_name" == xe-antishell ]] || { fail 'The supplied RPM is not the xe-antishell package.'; return 1; }
   candidate_nevra=$(rpm -qp --queryformat "$nevra_format" -- "$rpm_path") || return 1
-  installed_nevra=$(rpm -q --queryformat "$nevra_format" xe-antishell 2>/dev/null) || installed_nevra=''
   if [[ "$installed_nevra" == "$candidate_nevra" ]]; then
     printf 'The same RPM version and architecture are installed; continuing setup.\n'
   else
