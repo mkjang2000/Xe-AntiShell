@@ -91,10 +91,47 @@ C/Go 빌드를 통과했다. 이 실증을 위해 sensor/schema를 수정할 필
   위 Capability 변화는 EUID 변경의 결과이며 root-restored 규칙으로 평가됐다.
 - 여러 thread, fork 후 exec하지 않은 child, PID 재사용·늦은 이벤트, 컨테이너 및
   non-host/unknown user namespace의 실제 서버 사례.
-- Rocky Linux 8/10 또는 CentOS 7의 이 센서 attach·이벤트 모양.
+- Rocky Linux 8 또는 CentOS 7의 이 센서 attach·이벤트 모양.
+  Rocky10 후속 배포 검증은 아래와 같이 별도로 수행했다.
 - 전역 unrestricted 정책의 sustained event rate, 부하, 손실 및 장시간 운영 안정성.
-- 실제 배포된 에이전트의 opt-in controller, queue/DB/outbox/Central/UI까지의 전체 경로.
+- 최초 격리 proof 자체에는 설치된 controller/DB/outbox/Central 경로가 없었다.
+  후속 RPM27에서 수행한 통합 검증을 아래에 구분한다.
 
 위 항목은 코드·단위 테스트 근거와 실서버 검증을 분리해서 보고해야 한다.
 이 결과만으로 완전한 credential 관측, 손실 없는 수집, 컨테이너 탈출 탐지,
 커널 변조 방어 또는 차단 기능이 검증됐다고 주장하지 않는다.
+
+## 후속 실서버 통합 검증: Agent RPM27
+
+같은 날짜의 후속 작업에서 publisher 서명된 RPM27을 중앙의 대상별 preview와
+승인된 업데이트 경로로 Rocky9.8/5.14 및 Rocky10.2/6.12 서버에 순서대로
+배포했다. 두 작업 모두 설치 성공과 재시작 후 실제 exec 수집 검증을 보고했다.
+기존 등록과 웹 탐지 정책을 보존하고 새 프로필만 observe로 활성화했다.
+두 서버 모두 고정 monitor 정책이 loaded 상태였고, 실제 완전한 paired
+credential 이벤트를 받아 `observation.credential_change`가 active가 됐다.
+엔진 제공 여부와 실제 이벤트 수신은 별개의 값으로 확인했다.
+
+Rocky9 서버에서는 같은 disposable C child를 사용해 실제 설치 daemon의
+queue/DB/탐지/outbox와 중앙의 committed event bundle까지 대조했다.
+EUID0→65534→0의 동일 task와 직접 Before65534를 확인했고,
+`privilege-root-restored`,40점,`DetectionOnly:true`,
+`response_decision:detection_only`를 확인했다. 중앙의 두 event ID,
+credential DTO 및 finding ID/규칙/점수도 로컬 결과와 일치했다.
+이 검증은30초 예산 안에 완료됐고 child 회수, 부모 UID/EUID 불변,
+등록·정책·수집기 generation·loaded policy ID 불변 및 관측된 손실·parse
+카운터 증가 없음을 확인했다. 검증 helper는 정책이나 서비스를 변경하지 않았다.
+
+최초 RPM26 배포에서는 정상적인 빈 Tetragon 정책 목록이 `{}`라는 점과
+고정64건/초 중앙 전송 상한 때문에 문제가 드러났다. 원본 upstream 생성
+타입의 MarshalJSON으로 빈 객체를 재현했고, RPM27에서 canonical 빈 객체
+허용과 엄격한 모호 JSON 거부를 추가했다. 전송은 ACK 완료 batch를8회 또는
+250ms까지 처리한 뒤50ms 양보하도록 바꿨고, 기존 idle/backoff/취소/순서를
+유지했다. 임시 opt-out 동안 쌓인 기록은 유실 없이 배출됐으며 수정본 배포
+뒤 프로필을 다시 활성화했다. 기존 RPM26 공개 설명에도 수정 버전을 안내했다.
+
+추가40초/3표본 관찰에서 두 서버의 에이전트 drop/parse 및 source parse는0,
+credential runtime은 active였다. busy 서버의 전송 대기는0~14건 범위에서
+처리됐고 lost_records는0이었다. 이 짧은 관찰은 장시간 용량 보증이나 커널
+계층의 이벤트 손실 부재 증명이 아니다. 독립 Capability 양성/비인가 root
+획득/모든 container·thread/fork 사례는 위 미검증 범위에 남는다.
+중앙의 대규모 이력 조회 성능과 UI는 이 센서 증명과 별도로 검증한다.
