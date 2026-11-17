@@ -43,19 +43,35 @@ wizard_package_choices() {
 }
 
 wizard_installation_code() {
-  # Disable shell tracing before any secret enters a shell variable.
+  # Disable tracing and automatic exports before any secret enters a variable.
   set +x
-  local installation_code='' LC_ALL=C
-  export -n installation_code
+  set +a
+  local installation_code='' input_character='' LC_ALL=C
+  export -n installation_code input_character
   require_command mktemp || return 1
   require_command rm || return 1
+  require_command stty || return 1
+  wizard_tty_state=$(stty -g) || return 1
+  stty -echo -icanon min 1 time 0 || return 1
   printf '중앙 관리 웹에서 발급한 xeas1. 설치 코드를 붙여 넣고 Enter를 누르세요.\n' >&2
-  if ! IFS= read -r -s -n 16385 -p '설치 코드 (화면에 표시되지 않음): ' installation_code; then
-    printf '\n' >&2
-    fail '입력이 종료되어 설치를 취소했습니다.'; return 1
-  fi
+  printf '설치 코드 (화면에 표시되지 않음): ' >&2
+  # Single-character reads keep interrupt handling responsive during a paste.
+  while true; do
+    if ! IFS= read -r -n 1 input_character || [[ "$input_character" == $'\004' ]]; then
+      printf '\n' >&2
+      fail '입력이 종료되어 설치를 취소했습니다.'; return 1
+    fi
+    [[ -n "$input_character" ]] || break
+    installation_code+=$input_character
+    if (( ${#installation_code} > 16384 )); then
+      unset installation_code input_character
+      fail '설치 코드 길이가 제한을 초과했습니다.'; return 1
+    fi
+  done
+  unset input_character
+  restore_install_terminal || return 1
   printf '\n' >&2
-  if (( ${#installation_code} > 16384 )) || [[ ! "$installation_code" =~ ^xeas1\.[A-Za-z0-9_-]+$ ]]; then
+  if [[ ! "$installation_code" =~ ^xeas1\.[A-Za-z0-9_-]+$ ]]; then
     unset installation_code
     fail '설치 코드 형식 또는 길이가 올바르지 않습니다. 중앙 웹에서 발급한 전체 설치 코드를 사용하세요.'; return 1
   fi

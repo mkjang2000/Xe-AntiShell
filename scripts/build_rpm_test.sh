@@ -152,6 +152,8 @@ with tarfile.open(sys.argv[1], 'r:gz') as archive:
     for expected in ['README.md','LICENSE','THIRD_PARTY_NOTICES.md','third_party/licenses/upstream-LICENSE.txt','go.mod','protocol/go.mod','protocol/LICENSE','protocol/README.md','protocol/managed/protocol.go','protocol/managed/protocol_test.go','protocol/managed/testdata/legacy-policy.json','protocol/model/model.go','internal/model/model.go','internal/storage/schema.sql','configs/examples/monitor.yaml','devdocs/plans/install.md','devdocs/analysis/managed-v1-operations.md','Linux_Host_Security_Platform_Design_v0.1.md']:
         assert root+expected in names, expected
     assert root+'packaging/systemd/sentinel-central.service' not in names
+    assert root+'packaging/install-wizard.sh' in names
+    assert root+'packaging/install_wizard_test.py' in names
     for member in archive.getmembers():
         assert member.name.startswith(root)
         assert member.isfile()

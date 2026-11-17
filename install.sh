@@ -194,7 +194,15 @@ enable_web() {
   printf 'Web panel enabled. Initial password, when newly created: %s\n' "$XEAS_WEB_PASSWORD_FILE"
 }
 
+restore_install_terminal() {
+  if [[ -n "${wizard_tty_state:-}" ]]; then
+    stty "$wizard_tty_state" 2>/dev/null || return 1
+    wizard_tty_state=''
+  fi
+}
+
 cleanup_install() {
+  restore_install_terminal || :
   if [[ -n "${wizard_code_file:-}" ]]; then rm -f -- "$wizard_code_file" || :; fi
   if [[ -n "${build_directory:-}" ]]; then rm -rf -- "$build_directory" || :; fi
 }
@@ -202,7 +210,7 @@ cleanup_install() {
 main() (
   local rpm_path='' central_url='' agent_id='' ca_file='' token_file='' recovery_file='' enrollment_file=''
   local with_web=false with_build=false option value supplied=0 package_name recovery_parent candidate_nevra installed_nevra manager_version
-  local build_directory='' wizard_code_file='' interactive=false
+  local build_directory='' wizard_code_file='' wizard_tty_state='' interactive=false
   local nevra_format='%{NAME}-%{EPOCH}:%{VERSION}-%{RELEASE}.%{ARCH}'
   trap cleanup_install EXIT
   trap 'exit 130' INT

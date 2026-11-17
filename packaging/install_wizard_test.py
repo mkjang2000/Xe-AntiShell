@@ -41,7 +41,9 @@ stat() {
   else command stat "$@"; fi
 }
 mktemp() {
-  if [[ "$1" == /tmp/xeas-install-code.* ]]; then command mktemp "$work/code.XXXXXX";
+  if [[ "$1" == /tmp/xeas-install-code.* ]]; then
+    command env > "$work/code-creation-environment"
+    command mktemp "$work/code.XXXXXX";
   elif [[ "$1" == -d ]]; then command mktemp -d "$work/build.XXXXXX";
   else return 1; fi
 }
@@ -77,7 +79,7 @@ sentinel() {
   if [[ "$1" == status ]]; then return 0; fi
   [[ "$1 $2" == 'managed enroll-code' && "$3" == --code-file && "$5" == --recovery-file ]] || return 1
   [[ "$(command stat -c '%a' -- "$4")" == 600 ]] || return 1
-  [[ "$(< "$4")" == xeas1.PTY_SECRET_INSTALLATION_CODE_NEVER_PRINT ]] || return 1
+  [[ "$(< "$4")" == "$(< "$work/expected-code")" ]] || return 1
   printf '%s\n' "$4" > "$work/enrollment-path"
   command env > "$work/enrollment-environment"
   if [[ ! -e "$6" ]]; then printf 'DURABLE_RECOVERY_FIXTURE\n' > "$6"; chmod 0600 "$6"; fi
@@ -106,6 +108,8 @@ def fixture(directory):
     ):
         (work / name).write_text("fixture\n")
     (work / "calls").write_text("")
+    (work / "expected-code").write_text(SECRET)
+    (work / "expected-code").chmod(0o600)
     (work / "manual").mkdir()
     (work / "manual" / "manual package.rpm").write_text("fixture\n")
     build = "#!/usr/bin/env bash\nset -euo pipefail\n"
@@ -123,14 +127,15 @@ def assert_no_mutations(work):
         assert mutation not in calls, f"Cancellation reached a host mutation: {mutation}"
 
 
-def run_terminal(work, exchanges, expected=0, terminate=None, enrollment_failure=False):
+def run_terminal(work, exchanges, expected=0, terminate=None, enrollment_failure=False, allexport=False):
     master, slave = pty.openpty()
+    original_terminal = termios.tcgetattr(slave)
     env = dict(os.environ)
     # An inherited exported name must never cause a pasted code to be exported.
     env["installation_code"] = "previous-nonsecret-value"
     env["XEAS_TEST_ENROLL_FAIL"] = "1" if enrollment_failure else "0"
     process = subprocess.Popen(
-        ["bash", str(work / "harness.sh"), str(REPO), str(work)],
+        ["bash", *(["-a"] if allexport else []), str(work / "harness.sh"), str(REPO), str(work)],
         stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True,
     )
     output = bytearray()
@@ -158,20 +163,20 @@ def run_terminal(work, exchanges, expected=0, terminate=None, enrollment_failure
         for prompt, response in exchanges:
             drain_until(prompt)
             if response is not None:
-                os.write(master, (response + "\n").encode())
+                os.write(master, response if isinstance(response, bytes) else (response + "\n").encode())
         if terminate is not None:
             os.killpg(process.pid, terminate)
         drain_until()
         result = process.wait(timeout=2)
         assert result == expected or (terminate is not None and result != 0), f"Unexpected installer exit {result}: {output.decode(errors='replace')}"
-        assert termios.tcgetattr(slave)[3] & termios.ECHO, "Terminal echo was not restored"
+        assert termios.tcgetattr(slave) == original_terminal, "Original terminal settings were not restored"
         text = output.decode(errors="replace")
         assert SECRET not in text and "LOCAL_PASSWORD_FIXTURE" not in text and "DURABLE_RECOVERY_FIXTURE" not in text, "A secret reached terminal output"
         assert SECRET not in (work / "calls").read_text(), "A code reached command arguments"
         assert not list(work.glob("code.*")), "Temporary installation code was retained"
         assert not list(work.glob("build.*")), "Temporary RPM build was retained"
-        if (work / "enrollment-environment").exists():
-            assert SECRET not in (work / "enrollment-environment").read_text(), "A code reached the environment"
+        for environment in work.glob("*-environment"):
+            assert SECRET not in environment.read_text(), "A code reached the environment"
         return text
     finally:
         if process.poll() is None:
@@ -193,6 +198,7 @@ def main():
         ("central-web", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, SECRET), (WEB_PROMPT, "y"), (CONFIRM_PROMPT, "y")]),
         ("cancel", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "y"), (CODE_PROMPT, SECRET), (WEB_PROMPT, ""), (CONFIRM_PROMPT, "")]),
         ("invalid-code", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, "invalid-code")]),
+        ("end-of-input", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, b"\x04")]),
         ("oversized-code", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, "xeas1." + "A" * 16379)]),
         ("build", [(PACKAGE_PROMPT, "3"), (CENTRAL_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "yes")]),
         ("enrollment-failure", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "y"), (CODE_PROMPT, SECRET), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")]),
@@ -203,12 +209,12 @@ def main():
             if name == "cancel":
                 (work / "recovery").write_text("PRESERVED_RECOVERY\n")
                 (work / "recovery").chmod(0o600)
-            expected = 1 if name in ("cancel", "invalid-code", "oversized-code", "enrollment-failure") else 0
+            expected = 1 if name in ("cancel", "invalid-code", "end-of-input", "oversized-code", "enrollment-failure") else 0
             output = run_terminal(work, exchanges, expected, enrollment_failure=name == "enrollment-failure")
             assert "로컬 RPM:" in output and "17.el10.x86_64.rpm" in output
             assert "17.el9.x86_64.rpm" not in output and "17.el10.aarch64.rpm" not in output
             calls = (work / "calls").read_text()
-            if name in ("cancel", "invalid-code", "oversized-code"):
+            if name in ("cancel", "invalid-code", "end-of-input", "oversized-code"):
                 assert_no_mutations(work)
                 assert "A" * 64 not in output
             elif name in ("central-web", "enrollment-failure"):
@@ -230,13 +236,23 @@ def main():
         assert f"rpm -Uvh -- {manual}" in (work / "calls").read_text()
 
     for interrupt in (signal.SIGINT, signal.SIGTERM):
-        with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
-            work = fixture(directory)
-            (work / "recovery").write_text("PRESERVED_RECOVERY\n")
-            (work / "recovery").chmod(0o600)
-            run_terminal(work, [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, SECRET), (WEB_PROMPT, None)], terminate=interrupt)
-            assert_no_mutations(work)
-            assert (work / "recovery").read_text() == "PRESERVED_RECOVERY\n"
+        for interrupted_step in (
+            [(CODE_PROMPT, None)],
+            [(CODE_PROMPT, SECRET.encode())],
+            [(CODE_PROMPT, SECRET), (WEB_PROMPT, None)],
+        ):
+            with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
+                work = fixture(directory)
+                (work / "recovery").write_text("PRESERVED_RECOVERY\n")
+                (work / "recovery").chmod(0o600)
+                run_terminal(work, [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), *interrupted_step], terminate=interrupt)
+                assert_no_mutations(work)
+                assert (work / "recovery").read_text() == "PRESERVED_RECOVERY\n"
+
+    with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
+        work = fixture(directory)
+        run_terminal(work, [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, SECRET), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")], allexport=True)
+        assert (work / "code-creation-environment").exists()
 
     print("Installer PTY checks passed. No host packages or services were changed.")
 
