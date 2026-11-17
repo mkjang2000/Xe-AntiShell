@@ -228,13 +228,7 @@ func (c *Controller) list(ctx context.Context) ([]policyState, error) {
 	if err != nil || len(data) > 1<<20 {
 		return nil, errors.New("policy list unavailable")
 	}
-	var envelope struct {
-		Policies *[]policyState `json:"policies"`
-	}
-	if json.Unmarshal(data, &envelope) != nil || envelope.Policies == nil || len(*envelope.Policies) > 256 {
-		return nil, errors.New("invalid policy list")
-	}
-	return *envelope.Policies, nil
+	return decodePolicyList(data)
 }
 func (c *Controller) readOwner() (ownership, bool, error) {
 	p := filepath.Join(c.Directory, markerName)

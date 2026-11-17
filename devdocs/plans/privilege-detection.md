@@ -126,3 +126,34 @@ no sampler open of synthetic cmdline/environ, and a Python inotify-only fixture
 with no sampler also received IN_OPEN after100ms. Do not weaken this test to
 hide the environment issue; rerun unchanged tests in isolated EL10 QA and report
 both results. This observation is not a production privacy exception.
+
+# Production corrections (Agent27 / Central14)
+
+Agent26 first deployment exposed two concrete compatibility/capacity defects.
+Upstream tetra1.8 ListTracingPoliciesResponse.MarshalJSON uses protojson with
+UseProtoNames and without EmitUnpopulated: a successful zero-policy list is{}.
+Treat only this canonical empty object or one explicit policies array as a valid
+list; continue rejecting null, unknown envelopes, duplicate object keys at any
+depth and malformed/trailing JSON. This permits first sensor attachment on an
+otherwise empty server while preserving foreign/ambiguous ownership checks.
+
+The existing sender limited a64-record batch to one request per second even
+while the outbox was nonempty. Global root exec retention exceeded that rate
+on the busy development server, delaying central evidence despite no record
+loss. Drain successful batches up to8 or250ms per burst, then yield50ms through
+the cancellable timer. Empty/unregistered input waits1sec; real failures retain
+2sec exponential backoff capped60sec. Lock ownership and committed ACK/order
+remain batch-scoped; never drop backlog or bypass durable spool limits. A slow
+HTTP request retains its own deadline, independent of the burst budget.
+
+Validation covers empty-list first attach/idempotence/disable/foreign responses,
+malformed/deep/duplicate JSON, thousands of ordered fake records, bounded
+continuous bursts/time budget, idle, failures/retry recovery and cancellation.
+Repeat isolated package tests and staged signed27 updates before re-enabling
+the temporary opted-out optional profiles. Preserve web rules, observation mode,
+revision monotonicity and all queued evidence throughout.
+
+Central rare-type history queries additionally scanned an existing large JSON
+history in its only database connection. Central14 applies literal-path type
+indices and per-branch parameterized filters/bounds plus a separate read-only
+history pool/deadlines; that design and validation belong to the central repo.

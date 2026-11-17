@@ -10,6 +10,14 @@ import (
 	"xe-antishell/internal/storage"
 )
 
+const (
+	managedDeliveryIdle        = time.Second
+	managedDeliveryMaxBackoff  = time.Minute
+	managedDeliveryBurstBatch  = 8
+	managedDeliveryBurstBudget = 250 * time.Millisecond
+	managedDeliveryYield       = 50 * time.Millisecond
+)
+
 func (s *Service) startManagedWorkers(ctx context.Context) {
 	if _, state, err := s.managedConnection(ctx); err == nil {
 		if signed, err := s.store.Policy(ctx); err == nil {
@@ -55,20 +63,50 @@ func managedWait(ctx context.Context, duration time.Duration) bool {
 }
 
 func (s *Service) managedDeliveryLoop(ctx context.Context) {
-	backoff := time.Second
-	for {
+	runManagedDelivery(ctx, func(ctx context.Context) (bool, error) {
 		s.managedRuntime.senderMu.Lock()
-		_, err := s.deliverManagedBatch(ctx)
-		s.managedRuntime.senderMu.Unlock()
-		if err != nil && !errors.Is(err, storage.ErrNotFound) {
-			backoff *= 2
-			if backoff > time.Minute {
-				backoff = time.Minute
-			}
-		} else {
-			backoff = time.Second
+		defer s.managedRuntime.senderMu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return false, err
 		}
-		if !managedWait(ctx, backoff) {
+		return s.deliverManagedBatch(ctx)
+	}, managedWait, time.Now)
+}
+
+// Drain acknowledged backlog without imposing the idle poll interval on every
+// batch. Both batch/time limits plus a cancellable yield bound continuous load;
+// one slow request still respects the client's existing request deadline.
+func runManagedDelivery(ctx context.Context, deliver func(context.Context) (bool, error), wait func(context.Context, time.Duration) bool, now func() time.Time) {
+	backoff := managedDeliveryIdle
+	for ctx.Err() == nil {
+		started := now()
+		delay := managedDeliveryYield
+		for batch := 0; batch < managedDeliveryBurstBatch; batch++ {
+			if ctx.Err() != nil {
+				return
+			}
+			empty, err := deliver(ctx)
+			if ctx.Err() != nil {
+				return
+			}
+			if err != nil && !errors.Is(err, storage.ErrNotFound) {
+				backoff *= 2
+				if backoff > managedDeliveryMaxBackoff {
+					backoff = managedDeliveryMaxBackoff
+				}
+				delay = backoff
+				break
+			}
+			backoff = managedDeliveryIdle
+			if empty || err != nil {
+				delay = managedDeliveryIdle
+				break
+			}
+			if now().Sub(started) >= managedDeliveryBurstBudget {
+				break
+			}
+		}
+		if !wait(ctx, delay) {
 			return
 		}
 	}

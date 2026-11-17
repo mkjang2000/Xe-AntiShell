@@ -38,6 +38,7 @@ Xe-AntiShell/
 │   │   ├── runtime_errors.go      # Independent recoverable operation errors over collector state
 │   │   ├── retention.go           # Deferred and paced database maintenance
 │   │   ├── privilege.go           # Opt-in engine capability, paired receipt epoch and fixed-policy worker
+│   │   ├── managed_worker.go      # Bounded acknowledged delivery bursts and independent control workers
 │   │   └── managed_update.go      # Separate update inventory/polling/report worker
 │   ├── buildinfo/                 # Injected running RPM epoch/version/release/architecture
 │   ├── capability/                # Host/kernel feature discovery
@@ -60,6 +61,7 @@ Xe-AntiShell/
 │   ├── model/                     # Shared core aliases plus agent-only history/UI models
 │   ├── managedclient/             # Pinned-CA HTTPS, mTLS and safe transport diagnostics
 │   ├── privileges/                # Strict Tetragon args and root-owned fixed monitor-policy controller
+│   │   ├── policy_list.go         # Canonical empty upstream list and duplicate-key-safe decoding
 │   │   └── credential-policy.yaml # Compiled commit_creds old/new/TID/start/TGID/return sensor
 │   ├── procfs/                    # Minimal live process/cgroup snapshot
 │   ├── releasepublish/            # Explicit publisher commands, private-key file safety and manifest handling

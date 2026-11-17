@@ -109,7 +109,7 @@ already initialized server. Preserve the recovery file securely outside the host
 ## Root and credential observation
 
 Compatible packaged agents can opt in through Central's privilege profile
-(Agent RPM26 / Central RPM13, protocol v0.3.0), independently of web origins.
+(Agent RPM27 / Central RPM14, protocol v0.3.0), independently of web origins.
 Central checks the current enrollment's fresh engine capability before issuing
 new policy fields. Standalone configuration uses `detection.privilege_rules:
 true` and optional `root_exec_alerts: suspicious` or `all`. The default is off.

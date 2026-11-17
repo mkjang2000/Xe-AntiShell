@@ -16,6 +16,7 @@ type fakeControl struct {
 	adds, deletes int
 	failAdd       bool
 	failList      bool
+	listJSON      []byte
 }
 
 func readyPolicy() policyState {
@@ -32,11 +33,14 @@ func (f *fakeControl) Run(_ context.Context, _ string, args ...string) ([]byte, 
 		if f.failList {
 			return nil, errors.New("list unavailable")
 		}
-		p := f.policies
-		if p == nil {
-			p = []policyState{}
+		if f.listJSON != nil {
+			return f.listJSON, nil
 		}
-		return json.Marshal(map[string]any{"policies": p})
+		// Match Tetragon protojson: an empty repeated field is omitted. The
+		// former {"policies":[]} fake concealed first-install failures.
+		return json.Marshal(struct {
+			Policies []policyState `json:"policies,omitempty"`
+		}{Policies: f.policies})
 	case "add":
 		f.adds++
 		if f.failAdd {
