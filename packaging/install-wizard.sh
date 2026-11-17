@@ -87,10 +87,10 @@ run_install_wizard() {
   local -a wizard_packages=()
   require_command rpm || return 1
   require_command uname || return 1
-  printf 'Xe-AntiShell 설치 안내\n\n1/6 운영체제 및 아키텍처 확인\n' >&2
+  printf 'Xe-AntiShell 설치 안내\n\n1/7 운영체제 및 아키텍처 확인\n' >&2
   detect_os
   host_architecture=$(uname -m) || return 1
-  printf '아키텍처: %s\n\n2/6 설치 패키지 선택\n' "$host_architecture" >&2
+  printf '아키텍처: %s\n\n2/7 설치 패키지 선택\n' "$host_architecture" >&2
   wizard_package_choices "$host_architecture" || return 1
   for (( index=0; index<${#wizard_packages[@]}; index++ )); do
     printf '  %d) 로컬 RPM: %s\n' "$((index+1))" "${wizard_packages[index]}" >&2
@@ -120,21 +120,29 @@ run_install_wizard() {
     fi
     printf '목록에 있는 번호를 입력하세요.\n' >&2
   done
-  printf '\n3/6 중앙 관리 방식 선택\n' >&2
+  printf '\n3/7 중앙 관리 방식 선택\n' >&2
   wizard_yes_no '중앙 관리 서버에 등록하시겠습니까? [Y/n]: ' y || return 1
   if [[ "$wizard_yes" == true ]]; then wizard_installation_code || return 1; fi
-  printf '\n4/6 로컬 모니터링 웹\n' >&2
+  printf '\n4/7 Tetragon 프로세스 수집기\n' >&2
+  printf '공식 Tetragon v1.8.0 고정 릴리스(약 90MB)를 내려받아 체크섬을 검증합니다.\n' >&2
+  printf 'Python 3와 PyYAML이 없으면 OS 패키지 관리자로 설치합니다.\n' >&2
+  printf 'root 전용 Unix 소켓으로 연결하고 관찰 전용(observe-only)으로 실행하며 실제 프로세스 이벤트를 확인합니다.\n' >&2
+  wizard_yes_no 'Tetragon 프로세스 수집기를 설치·연결하시겠습니까? [Y/n]: ' y || return 1
+  with_tetragon=$wizard_yes
+  printf '\n5/7 로컬 모니터링 웹\n' >&2
   wizard_yes_no '이 호스트의 로컬 모니터링 웹을 켜시겠습니까? [y/N]: ' n || return 1
   with_web=$wizard_yes
-  printf '\n5/6 설치 내용 확인\n' >&2
+  printf '\n6/7 설치 내용 확인\n' >&2
   if [[ "$with_build" == true ]]; then printf '패키지: 현재 소스에서 RPM 빌드\n' >&2
   else printf '패키지: %s\n' "$rpm_path" >&2; fi
   if [[ -n "$enrollment_file" ]]; then
     printf '중앙 관리: 설치 코드로 등록\n오프라인 복구 파일: %s\n' "$recovery_file" >&2
   else printf '중앙 관리: 사용 안 함 (독립 실행)\n' >&2; fi
+  if [[ "$with_tetragon" == true ]]; then printf 'Tetragon 프로세스 수집기: 설치·연결 (관찰 전용, 실제 이벤트 확인)\n' >&2
+  else printf 'Tetragon 프로세스 수집기: 설치 안 함\n' >&2; fi
   if [[ "$with_web" == true ]]; then printf '로컬 모니터링 웹: 사용\n' >&2
   else printf '로컬 모니터링 웹: 사용 안 함\n' >&2; fi
-  printf '기존 설정과 인증 정보는 유지합니다. Tetragon 설치와 audit 수집 활성화는 별도 작업입니다.\n\n6/6 최종 확인\n' >&2
+  printf '기존 설정과 인증 정보는 유지합니다. audit 수집 활성화는 별도 작업입니다.\n\n7/7 최종 확인\n' >&2
   wizard_yes_no '위 내용으로 설치를 진행하시겠습니까? [y/N]: ' n || return 1
   [[ "$wizard_yes" == true ]] || { fail '설치를 취소했습니다. 패키지와 서비스는 변경하지 않았습니다.'; return 1; }
 }

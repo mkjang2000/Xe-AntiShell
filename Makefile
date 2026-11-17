@@ -32,6 +32,7 @@ check-tools:
 		command -v "$$tool" >/dev/null 2>&1 || { echo "Required verification tool is missing: $$tool" >&2; exit 1; }; \
 	done
 	@python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' || { echo 'Python 3.9 or newer is required.' >&2; exit 1; }
+	@python3 -c 'import yaml' || { echo 'PyYAML is required for installer verification (python3-pyyaml / python3-yaml).' >&2; exit 1; }
 
 check-source:
 	@if [ -f .local/private-source-patterns.txt ]; then \
@@ -48,7 +49,9 @@ test-scripts:
 	@for script in install.sh packaging/*.sh scripts/*.sh; do bash -n "$$script" || exit 1; done
 	@for script in internal/webpanel/assets/*.js; do node --check "$$script" || exit 1; done
 	bash packaging/install_test.sh
+	bash packaging/install_tetragon_test.sh
 	PYTHONDONTWRITEBYTECODE=1 python3 packaging/install_wizard_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s packaging/tetragon -p 'test_*.py'
 	bash scripts/build_rpm_test.sh
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p check_source_test.py
 

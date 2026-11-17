@@ -67,7 +67,8 @@ build_source_paths() (
     packaging/audit/xe-antishell.conf
     packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf
     packaging/tetragon/sentineld.conf packaging/install_test.sh
-    packaging/install-wizard.sh packaging/install_wizard_test.py)
+    packaging/install-wizard.sh packaging/install_wizard_test.py
+    packaging/install-tetragon.sh packaging/install_tetragon_test.sh packaging/tetragon/setup.py)
   for path in "${required[@]}"; do
     [[ -f "$path" && ! -L "$path" ]] || { build_fail "Required source file is missing or a symlink: $path"; return 1; }
     printf '%s\0' "$path"
@@ -78,11 +79,11 @@ build_source_paths() (
   [[ -n $(find third_party/licenses -type f \( -name '*.txt' -o -name '*.md' \) -print -quit) ]] || {
     build_fail 'The upstream license directory must contain license texts.'; return 1
   }
-  for path in .gitignore .gitattributes .release-files .releaseignore LICENSE.md COPYING NOTICE CHANGELOG.md CONTRIBUTING.md SECURITY.md Linux_Host_Security_Platform_Design_v0.1.md devdocs/analysis/managed-v1-operations.md; do
+  for path in .gitignore .gitattributes .release-files .releaseignore LICENSE.md COPYING NOTICE CHANGELOG.md CONTRIBUTING.md SECURITY.md Linux_Host_Security_Platform_Design_v0.1.md devdocs/analysis/managed-v1-operations.md devdocs/analysis/tetragon-installation.ko.md; do
     [[ ! -L "$path" ]] || { build_fail "Source symlink is not allowed: $path"; return 1; }
     [[ ! -f "$path" ]] || printf '%s\0' "$path"
   done
-  for source_dir in cmd internal protocol scripts testdata devdocs/plans devdocs/reviews configs/examples .github/workflows third_party/licenses; do
+  for source_dir in cmd internal protocol scripts testdata packaging/tetragon devdocs/plans devdocs/reviews configs/examples .github/workflows third_party/licenses; do
     [[ ! -L "$source_dir" ]] || { build_fail "Source directory symlink is not allowed: $source_dir"; return 1; }
     [[ -d "$source_dir" ]] || continue
     if [[ -n $(find "$source_dir" -type l -print -quit) ]]; then
@@ -92,6 +93,7 @@ build_source_paths() (
       cmd|internal) find "$source_dir" -path '*/.*' -prune -o -type f \( -name '*.go' -o -name '*.sql' -o -name '*.js' -o -name '*.css' -o -name '*.html' \) -print0 ;;
       protocol) find "$source_dir" -path '*/.*' -prune -o -type f \( -name '*.go' -o -name '*.md' -o -name 'go.sum' -o \( -path '*/testdata/*' -a -name '*.json' \) \) -print0 ;;
       scripts) find "$source_dir" -path '*/.*' -prune -o -type f \( -name '*.sh' -o -name '*.py' \) -print0 ;;
+      packaging/tetragon) find "$source_dir" -path '*/.*' -prune -o -type f \( -name '*.py' -o -name '*.conf' \) -print0 ;;
       testdata) find "$source_dir" -path '*/.*' -prune -o -type f \( -name '*.jsonl' -o -name '*.json' \) -print0 ;;
       configs/examples|.github/workflows) find "$source_dir" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 ;;
       devdocs/*) find "$source_dir" -type f -name '*.md' -print0 ;;

@@ -11,11 +11,16 @@ XEAS_INSTALL_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 XEAS_BUILD_SCRIPT=$XEAS_INSTALL_ROOT/scripts/build-rpm.sh
 XEAS_WIZARD_SCRIPT=$XEAS_INSTALL_ROOT/packaging/install-wizard.sh
 XEAS_RECOVERY_FILE=/root/xe-antishell-offline-recovery
+XEAS_TETRAGON_SCRIPT=$XEAS_INSTALL_ROOT/packaging/install-tetragon.sh
+if [[ -f "$XEAS_TETRAGON_SCRIPT" && ! -L "$XEAS_TETRAGON_SCRIPT" ]]; then
+  source "$XEAS_TETRAGON_SCRIPT"
+fi
 
 usage() {
   cat <<'USAGE'
 Usage: sudo ./install.sh (--rpm PATH | --build) [OPTIONS]
        sudo ./install.sh                 Korean interactive setup on a terminal
+       sudo ./install.sh --tetragon-only  Add verified collection to an installed agent
 
 Choose one package source:
   --rpm PATH              Local xe-antishell RPM (no package download)
@@ -33,11 +38,17 @@ Legacy central enrollment (supply all five together; cannot mix with --enrollmen
   --recovery-file PATH    Root-only offline recovery file to create or reuse
 
 Other options:
+  --with-tetragon         Install and verify the pinned Tetragon process collector
+  --tetragon-only         Configure Tetragon only; no RPM transaction or enrollment
+  --tetragon-archive PATH Use the verified v1.8.0 amd64 archive offline (requires Tetragon)
   --enable-web            Initialize missing web credentials and start the panel
   -h, --help              Show this help
 
 The installer preserves existing configuration and credentials. It does not
-change firewall rules, enable enforcement, or install Tetragon automatically.
+change firewall rules or enable enforcement. Scripted Tetragon setup is opt-in;
+the terminal wizard offers it by default. Setup downloads the pinned official
+release and may install Python3/PyYAML dependencies through dnf. An existing
+unrelated Tetragon installation requires manual integration.
 RPM dependencies must already be available. OS/version and kernel capabilities
 need their own validation; a successful install does not certify OS support.
 --build additionally requires the documented Go, make and rpmbuild toolchain.
@@ -209,7 +220,8 @@ cleanup_install() {
 
 main() (
   local rpm_path='' central_url='' agent_id='' ca_file='' token_file='' recovery_file='' enrollment_file=''
-  local with_web=false with_build=false option value supplied=0 package_name recovery_parent candidate_nevra installed_nevra manager_version
+  local with_web=false with_build=false with_tetragon=false tetragon_only=false tetragon_archive='' tetragon_python=''
+  local option value supplied=0 package_name recovery_parent candidate_nevra installed_nevra manager_version
   local build_directory='' wizard_code_file='' wizard_tty_state='' interactive=false
   local nevra_format='%{NAME}-%{EPOCH}:%{VERSION}-%{RELEASE}.%{ARCH}'
   trap cleanup_install EXIT
@@ -231,7 +243,9 @@ main() (
       -h|--help) usage; return 0 ;;
       --enable-web) with_web=true; shift ;;
       --build) with_build=true; shift ;;
-      --rpm|--central|--agent-id|--ca-file|--token-file|--recovery-file|--enrollment-file)
+      --with-tetragon) with_tetragon=true; shift ;;
+      --tetragon-only) tetragon_only=true; with_tetragon=true; shift ;;
+      --rpm|--central|--agent-id|--ca-file|--token-file|--recovery-file|--enrollment-file|--tetragon-archive)
         if (( $# < 2 )) || [[ -z "$2" || "$2" == --* ]]; then
           fail "Missing value for $option"; return 1
         fi
@@ -241,13 +255,21 @@ main() (
           --agent-id) agent_id=$value ;; --ca-file) ca_file=$value ;;
           --token-file) token_file=$value ;; --recovery-file) recovery_file=$value ;;
           --enrollment-file) enrollment_file=$value ;;
+          --tetragon-archive) tetragon_archive=$value ;;
         esac
         shift 2 ;;
       *) fail "Unknown option: $option"; return 1 ;;
     esac
   done
-  if [[ "$with_build" == true && -n "$rpm_path" ]] || [[ "$with_build" == false && -z "$rpm_path" ]]; then
+  if [[ "$tetragon_only" == true ]]; then
+    if [[ -n "$rpm_path$central_url$agent_id$ca_file$token_file$recovery_file$enrollment_file" || "$with_build" == true || "$with_web" == true ]]; then
+      fail '--tetragon-only cannot be combined with RPM/build, enrollment, recovery or web setup.'; return 1
+    fi
+  elif [[ "$with_build" == true && -n "$rpm_path" ]] || [[ "$with_build" == false && -z "$rpm_path" ]]; then
     fail 'Choose exactly one of --rpm PATH or --build. Use --help for examples.'; return 1
+  fi
+  if [[ -n "$tetragon_archive" && "$with_tetragon" != true ]]; then
+    fail '--tetragon-archive requires --with-tetragon or --tetragon-only.'; return 1
   fi
   for value in "$central_url" "$agent_id" "$ca_file" "$token_file"; do
     if [[ -n "$value" ]]; then (( supplied+=1 )); fi
@@ -269,9 +291,10 @@ main() (
     for value in mktemp rm; do require_command "$value" || return 1; done
     check_regular_file "$XEAS_BUILD_SCRIPT" || return 1
     [[ -x "$XEAS_BUILD_SCRIPT" ]] || { fail 'The RPM build helper must be executable.'; return 1; }
-  else
+  elif [[ "$tetragon_only" != true ]]; then
     check_regular_file "$rpm_path" || return 1
   fi
+  if [[ -n "$tetragon_archive" ]]; then check_regular_file "$tetragon_archive" || return 1; fi
   if [[ -n "$enrollment_file" ]]; then
     check_private_file "$enrollment_file" || return 1
     check_file_size "$enrollment_file" 16384 || return 1
@@ -297,7 +320,19 @@ main() (
   if [[ "$with_web" == true ]]; then check_web_preflight "$manager_version" || return 1; fi
   installed_nevra=$(rpm -q --queryformat "$nevra_format" xe-antishell 2>/dev/null) || installed_nevra=''
   check_legacy_central_preflight "$installed_nevra" || return 1
+  if [[ "$with_tetragon" == true ]]; then
+    check_regular_file "$XEAS_TETRAGON_SCRIPT" || return 1
+    check_tetragon_preflight || return 1
+  fi
   if [[ "$interactive" == false ]]; then detect_os; fi
+  if [[ "$tetragon_only" == true ]]; then
+    [[ -n "$installed_nevra" ]] || { fail '--tetragon-only requires an installed xe-antishell agent.'; return 1; }
+    require_command sentinel || return 1
+    systemctl is-active --quiet sentineld.service || { fail 'Start sentineld before adding Tetragon.'; return 1; }
+    wait_for_agent || return 1
+    install_tetragon || return 1
+    return 0
+  fi
   if [[ "$with_build" == true ]]; then
     build_directory=$(mktemp -d /tmp/xeas-install-build.XXXXXX) || return 1
     printf 'Building the supplied source checkout before installing packages.\n'
@@ -333,9 +368,13 @@ main() (
       --ca-file "$ca_file" --token-file "$token_file" --recovery-file "$recovery_file" || return 1
     printf 'Preserve the recovery file securely outside this host for emergency removal.\n'
   fi
+  if [[ "$with_tetragon" == true ]]; then install_tetragon || return 1; fi
   if [[ "$with_web" == true ]]; then enable_web || return 1; fi
   printf 'Package and agent API setup completed. Verify observed collection with sentinel capabilities and the monitoring panel.\n'
-  printf 'Tetragon installation and audit-rule activation require separate host review.\n'
+  if [[ "$with_tetragon" != true ]]; then
+    printf 'Tetragon setup was not selected. Run --tetragon-only later to add and verify process collection.\n'
+  fi
+  printf 'Audit-rule activation and detection accuracy validation require separate host review.\n'
 )
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi

@@ -23,14 +23,15 @@ rejects `--enable-web` on older managers before installing a package.
 Choose one installation path from a reviewed checkout:
 
 With no arguments on a terminal, the installer walks through package selection,
-standalone or central enrollment, optional local monitoring, and a final review:
+standalone or central enrollment, Tetragon collection, optional local monitoring,
+and a final review:
 
 ```bash
 sudo ./install.sh
 ```
 
-Keep `packaging/install-wizard.sh` beside the installer in its original directory
-structure. The installation bundle includes this helper. For central enrollment,
+Keep the `packaging/` directory beside the installer in its original directory
+structure. The installation bundle includes the helpers. For central enrollment,
 paste the complete installation code issued by the authenticated central console.
 Input stays hidden. That code carries the central URL, agent ID and pinned public
 CA, so no separate CA/token files or recovery path need to be entered. The agent
@@ -45,7 +46,7 @@ sudo ./install.sh --build --enable-web
 
 # Or build once and install the resulting RPM on another compatible host.
 make rpm
-sudo ./install.sh --rpm ./dist/rpm/xe-antishell-0.1.0-17.el9.x86_64.rpm --enable-web
+sudo ./install.sh --rpm ./dist/rpm/xe-antishell-0.1.0-19.el9.x86_64.rpm --enable-web
 ```
 
 The RPM filename depends on the build host's distribution and architecture.
@@ -57,14 +58,16 @@ tools, uses the local Go toolchain and pinned module checksums, and downloads Go
 modules only when absent from the module cache. It does not install dependencies.
 Node.js and a C compiler are needed for developer verification, not RPM building.
 Install a newer Python on build hosts whose default is older. Installing an
-already built RPM through `--rpm` does not require Python or Go. RPM payload and
+already built RPM through `--rpm` does not require Go; optional Tetragon setup
+needs Python3/PyYAML as described below. RPM payload and
 runtime dependencies must match the target distribution; for example, the
 default EL9 Zstd payload is unsuitable for CentOS 7's older RPM. Build and test
 packages separately for each target family.
 
 The installer preserves existing agent configuration, web credentials and recovery
-files on retries. New installations start in observation mode. Tetragon setup,
-audit-rule activation and firewall changes require separate host configuration.
+files on retries. New installations start in observation mode. The wizard offers
+verified Tetragon setup; scripted setup opts in using `--with-tetragon`.
+Audit-rule activation and firewall changes require separate host configuration.
 An available agent API confirms startup; it does not confirm event collection.
 Check `sudo sentinel capabilities` and the panel's collection status, then
 validate detection with a controlled test before considering automatic response.
@@ -371,9 +374,36 @@ The validated collector version is the official Tetragon v1.8.0 standalone
 release. A generic example is in `configs/examples/agent-tetragon.yaml`; review
 its service origins and executable path for each host before applying it.
 The unit examples are in `packaging/tetragon/`; the external Tetragon
-distribution is installed separately from this RPM. Tetragon uses a root-only
+distribution is downloaded separately from this RPM. Tetragon uses a root-only
 Unix control socket and local health/metrics endpoints. No tracing or
 enforcement policies are installed.
+
+For an agent that is already installed and enrolled, use the latest installer
+and its complete `packaging/` directory:
+
+```bash
+sudo ./install.sh --tetragon-only
+```
+
+This performs no agent RPM transaction or enrollment. New scripted installations
+can add `--with-tetragon` to `--rpm` or `--build`; the terminal wizard defaults to
+offering Tetragon. `--tetragon-archive /path/to/tetragon-v1.8.0-amd64.tar.gz`
+supplies the same pinned artifact offline. Initial automation supports x86_64
+with kernel BTF and a running standard agent unit. The helper installs
+Python3/PyYAML through dnf only when missing (EL8 uses Python3.9 packages).
+
+The helper verifies the fixed official SHA256, installs selected binaries and
+BPF objects under `/opt/xe-antishell/tetragon/v1.8.0`, and uses a root-only Unix
+socket. It checks running health, an actual benign exec PID and fresh agent
+collection evidence before success. Failures restore the old collector config
+and service state; backups remain root-only. Existing unrelated Tetragon units
+or custom agent ExecStart/config overrides require manual integration.
+Detection, response opt-in, credentials, database paths and existing filters are
+preserved. Repeated healthy setup verifies without restarting services.
+
+[Korean setup and manual procedure](devdocs/analysis/tetragon-installation.ko.md)
+includes expected checks and recovery steps. Collection verification does not
+establish webshell detection accuracy; run the separate detection scenarios.
 
 The agent receives the process exec/exit stream and keeps source ancestry in a
 bounded 50,000-record graph. `collector.tetragon.include_executables` and
@@ -399,7 +429,7 @@ make check-source  # review source candidates without printing secret values
 make rpm           # create one local RPM under dist/rpm; no host installation
 ```
 
-`make verify` requires Go 1.22+, Git, Python 3.9+, Node.js and a C compiler for Go's
+`make verify` requires Go 1.22+, Git, Python 3.9+ with PyYAML, Node.js and a C compiler for Go's
 race detector. It also tests the independently tagged `protocol/` module. GitHub
 Actions runs the same command with Go 1.22 and the current stable Go release.
 Released builds pin the published protocol through go.mod/go.sum and do not

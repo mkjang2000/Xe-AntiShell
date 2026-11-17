@@ -54,8 +54,11 @@ mock_enroll_failure=false
 mock_systemd_version=253
 mock_systemd_running=true
 mock_web_active=true
+mock_agent_active=true
 mock_agent_ready=true
 mock_package_name=xe-antishell
+mock_tetragon_preflight=true
+mock_tetragon_install=true
 stat() {
   if [[ "$1" == -c && "$2" == %u ]]; then printf '%s\n' "$mock_owner";
   else command stat "$@"; fi
@@ -89,10 +92,20 @@ systemctl() {
     [[ "$mock_central_active" == true ]]
   elif [[ "$1" == is-enabled && "${@: -1}" == sentinel-central.service ]]; then
     [[ "$mock_central_enabled" == true ]]
+  elif [[ "$1" == is-active && "${@: -1}" == sentineld.service ]]; then
+    [[ "$mock_agent_active" == true ]]
   elif [[ "$1" == is-active ]]; then [[ "$mock_web_active" == true ]]; fi
 }
 chown() { printf 'chown %s\n' "$*" >> "$calls"; }
 sleep() { :; }
+check_tetragon_preflight() {
+  printf 'tetragon preflight\n' >> "$calls"
+  [[ "$mock_tetragon_preflight" == true ]] || fail 'Mock Tetragon preflight failed.'
+}
+install_tetragon() {
+  printf 'tetragon install\n' >> "$calls"
+  [[ "$mock_tetragon_install" == true ]] || fail 'Mock Tetragon installation failed.'
+}
 sentinel() {
   printf 'sentinel %s\n' "$*" >> "$calls"
   if [[ "$1" == status ]]; then [[ "$mock_agent_ready" == true ]]; return; fi
@@ -110,7 +123,7 @@ sentinel-web() {
 assert_no_host_mutations() {
   local trace
   trace=$(< "$calls")
-  for mutation in 'rpm -Uvh' 'systemctl enable' 'systemctl daemon-reload' 'sentinel managed enroll' 'sentinel-web init-auth' 'chown '; do
+  for mutation in 'rpm -Uvh' 'systemctl enable' 'systemctl daemon-reload' 'sentinel managed enroll' 'sentinel-web init-auth' 'chown ' 'tetragon install'; do
     [[ "$trace" != *"$mutation"* ]] || { printf 'Invalid input mutated host commands.\n' >&2; exit 1; }
   done
 }
@@ -260,6 +273,7 @@ mock_installed=false
 main --build > "$test_root/stdout" 2> "$test_root/stderr"
 trace=$(< "$calls")
 [[ "$trace" == *'build --output-dir'* && "$trace" == *'rpm -Uvh'* ]]
+[[ "$trace" != *tetragon* ]]
 [[ ! -e "$(< "$XEAS_TEST_BUILD_DIRECTORY")" ]]
 assert_no_secrets
 for build_mode in failure empty multiple; do
@@ -274,11 +288,13 @@ main --rpm "$rpm_file" > "$test_root/stdout" 2> "$test_root/stderr"
 trace=$(< "$calls")
 [[ "$trace" == *'rpm -Uvh'* && "$trace" == *'systemctl enable --now sentineld.service'* ]]
 [[ "$trace" != *'managed enroll'* && "$trace" != *'sentinel-web'* ]]
+[[ "$trace" != *tetragon* ]]
 
 : > "$calls"
 main --rpm "$rpm_file" "${enroll[@]}" --enable-web > "$test_root/stdout" 2> "$test_root/stderr"
 trace=$(< "$calls")
 [[ "$trace" == *'sentinel managed enroll'* && "$trace" == *'sentinel-web init-auth'* && "$trace" == *'systemctl enable --now sentinel-web.service'* ]]
+[[ "$trace" != *tetragon* ]]
 [[ "$(command stat -c '%a' "$XEAS_WEB_AUTH_FILE")" == 600 ]]
 [[ "$(< "$test_root/stdout")" != *'SECRET_TOKEN_NEVER_PRINT'* && "$(< "$test_root/stdout")" != *'PASSWORD_NEVER_PRINT'* ]]
 assert_no_secrets
@@ -328,5 +344,71 @@ attempts=0
 while IFS= read -r line; do if [[ "$line" == 'sentinel status' ]]; then (( attempts+=1 )); fi; done < "$calls"
 [[ "$attempts" == 30 ]]
 assert_no_secrets
+
+# Collector modifiers reject incompatible or unusable inputs before installation.
+mock_agent_ready=true
+tetragon_archive_file="$test_root/local tetragon.tar.gz"
+printf 'local archive fixture\n' > "$tetragon_archive_file"
+ln -s "$tetragon_archive_file" "$test_root/tetragon-link"
+expect_failure --tetragon-only --rpm "$rpm_file"
+expect_failure --tetragon-only --build
+expect_failure --tetragon-only --enable-web
+expect_failure --tetragon-only --enrollment-file "$code_file"
+expect_failure --tetragon-only "${enroll[@]}"
+expect_failure --tetragon-only --recovery-file "$recovery_file"
+expect_failure --rpm "$rpm_file" --tetragon-archive "$tetragon_archive_file"
+expect_failure --rpm "$rpm_file" --with-tetragon --tetragon-archive
+expect_failure --rpm "$rpm_file" --with-tetragon --tetragon-archive "$test_root/missing-archive"
+expect_failure --tetragon-only --tetragon-archive "$test_root"
+expect_failure --tetragon-only --tetragon-archive "$test_root/tetragon-link"
+[[ "$(< "$calls")" != *'tetragon preflight'* ]]
+
+# Collector preflight is completed before an RPM transaction or source build.
+mock_tetragon_preflight=false
+expect_failure --rpm "$rpm_file" --with-tetragon
+[[ "$(< "$calls")" == *'tetragon preflight'* ]]
+[[ "$(< "$test_root/stderr")" == *'Mock Tetragon preflight failed.'* ]]
+expect_failure --build --with-tetragon
+[[ "$(< "$calls")" != *'build --output-dir'* ]]
+mock_tetragon_preflight=true
+
+# Explicit opt-in runs collector setup between enrollment and local web setup.
+mock_installed=false
+: > "$calls"
+main --rpm "$rpm_file" "${enroll[@]}" --with-tetragon --tetragon-archive "$tetragon_archive_file" --enable-web > "$test_root/stdout" 2> "$test_root/stderr"
+trace=$(< "$calls")
+[[ "$trace" == *'tetragon preflight'*'rpm -Uvh'*'sentinel managed enroll'*'tetragon install'*'systemctl enable --now sentinel-web.service'* ]]
+assert_no_secrets
+
+# Existing agents can add the collector without package, enrollment or web work.
+expect_failure --tetragon-only
+[[ "$(< "$calls")" != *'tetragon install'* ]]
+mock_installed=true
+mock_agent_active=false
+expect_failure --tetragon-only
+[[ "$(< "$calls")" != *'tetragon install'* ]]
+mock_agent_active=true
+mock_agent_ready=false
+expect_failure --tetragon-only
+[[ "$(< "$calls")" != *'tetragon install'* ]]
+mock_agent_ready=true
+: > "$calls"
+main --tetragon-only --tetragon-archive "$tetragon_archive_file" > "$test_root/stdout" 2> "$test_root/stderr"
+trace=$(< "$calls")
+[[ "$trace" == *'tetragon preflight'*'tetragon install'* ]]
+for unwanted in 'rpm -qp' 'rpm -Uvh' 'build --output-dir' 'systemctl daemon-reload' 'systemctl enable' 'sentinel managed' 'sentinel-web'; do
+  [[ "$trace" != *"$unwanted"* ]]
+done
+assert_no_secrets
+
+# Collector failure remains visible and prevents the later web step.
+mock_tetragon_install=false
+: > "$calls"
+if main --rpm "$rpm_file" --with-tetragon --enable-web > "$test_root/stdout" 2> "$test_root/stderr"; then exit 1; fi
+trace=$(< "$calls")
+[[ "$trace" == *'tetragon install'* && "$trace" != *'sentinel-web'* ]]
+[[ "$(< "$test_root/stderr")" == *'Mock Tetragon installation failed.'* ]]
+assert_no_secrets
+mock_tetragon_install=true
 
 printf 'Installer command-mock checks passed. No host installation was performed.\n'

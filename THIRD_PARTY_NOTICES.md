@@ -128,3 +128,8 @@ the license of every upstream eBPF file. Use the license files, source headers,
 third-party notices, and distribution obligations for the exact separately
 installed upstream release. If a future package bundles these external
 artifacts, prepare their release-specific notices before distributing it.
+
+The optional installer downloads the pinned upstream artifact at installation
+time; the agent RPM and source/install bundles contain no Tetragon binaries or
+BPF objects. Python3 and PyYAML used by that installer are installed separately
+from operating-system repositories and retain their package notices.

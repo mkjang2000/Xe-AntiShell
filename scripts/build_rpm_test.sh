@@ -31,6 +31,8 @@ for test_path in go.mod go.sum Makefile install.sh README.md Project_tree.md \
   packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf \
   packaging/tetragon/sentineld.conf packaging/install_test.sh \
   packaging/install-wizard.sh packaging/install_wizard_test.py \
+  packaging/install-tetragon.sh packaging/install_tetragon_test.sh packaging/tetragon/setup.py packaging/tetragon/setup_config.py \
+  packaging/tetragon/test_setup.py \
   cmd/sentineld/main.go internal/model/model.go internal/storage/schema.sql \
   internal/webpanel/assets/index.html internal/webpanel/assets/app.js \
   scripts/check-source.py scripts/build-rpm.sh testdata/events/replay.jsonl \
@@ -154,6 +156,8 @@ with tarfile.open(sys.argv[1], 'r:gz') as archive:
     assert root+'packaging/systemd/sentinel-central.service' not in names
     assert root+'packaging/install-wizard.sh' in names
     assert root+'packaging/install_wizard_test.py' in names
+    for expected in ['packaging/install-tetragon.sh','packaging/install_tetragon_test.sh','packaging/tetragon/setup.py','packaging/tetragon/setup_config.py','packaging/tetragon/test_setup.py']:
+        assert root+expected in names, expected
     for member in archive.getmembers():
         assert member.name.startswith(root)
         assert member.isfile()

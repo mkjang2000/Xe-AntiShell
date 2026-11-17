@@ -18,6 +18,7 @@ SECRET = "xeas1.PTY_SECRET_INSTALLATION_CODE_NEVER_PRINT"
 PACKAGE_PROMPT = "설치 방법 선택 [1]: "
 CENTRAL_PROMPT = "중앙 관리 서버에 등록하시겠습니까? [Y/n]: "
 CODE_PROMPT = "설치 코드 (화면에 표시되지 않음): "
+TETRAGON_PROMPT = "Tetragon 프로세스 수집기를 설치·연결하시겠습니까? [Y/n]: "
 WEB_PROMPT = "이 호스트의 로컬 모니터링 웹을 켜시겠습니까? [y/N]: "
 CONFIRM_PROMPT = "위 내용으로 설치를 진행하시겠습니까? [y/N]: "
 
@@ -27,6 +28,7 @@ source "$1/install.sh"
 work=$2
 XEAS_INSTALL_ROOT=$work
 XEAS_WIZARD_SCRIPT=$1/packaging/install-wizard.sh
+XEAS_TETRAGON_SCRIPT=$1/packaging/install-tetragon.sh
 XEAS_BUILD_SCRIPT=$work/build-rpm.sh
 XEAS_OS_RELEASE_FILE=$work/os-release
 XEAS_RECOVERY_FILE=$work/recovery
@@ -74,6 +76,8 @@ systemctl() {
 }
 sleep() { :; }
 chown() { printf 'chown %s\n' "$*" >> "$calls"; }
+check_tetragon_preflight() { printf 'tetragon preflight\n' >> "$calls"; }
+install_tetragon() { printf 'tetragon install\n' >> "$calls"; }
 sentinel() {
   printf 'sentinel %s\n' "$*" >> "$calls"
   if [[ "$1" == status ]]; then return 0; fi
@@ -123,7 +127,7 @@ def fixture(directory):
 
 def assert_no_mutations(work):
     calls = (work / "calls").read_text()
-    for mutation in ("rpm -Uvh", "systemctl enable", "systemctl daemon-reload", "sentinel managed", "sentinel-web", "chown ", "build\n"):
+    for mutation in ("rpm -Uvh", "systemctl enable", "systemctl daemon-reload", "sentinel managed", "sentinel-web", "chown ", "build\n", "tetragon install\n"):
         assert mutation not in calls, f"Cancellation reached a host mutation: {mutation}"
 
 
@@ -194,14 +198,16 @@ def main():
         assert_no_mutations(work)
 
     cases = [
-        ("standalone", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "n"), (WEB_PROMPT, ""), (CONFIRM_PROMPT, "y")]),
-        ("central-web", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, SECRET), (WEB_PROMPT, "y"), (CONFIRM_PROMPT, "y")]),
-        ("cancel", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "y"), (CODE_PROMPT, SECRET), (WEB_PROMPT, ""), (CONFIRM_PROMPT, "")]),
+        ("standalone", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "n"), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, ""), (CONFIRM_PROMPT, "y")]),
+        ("central-web", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, SECRET), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, "y"), (CONFIRM_PROMPT, "y")]),
+        ("tetragon-default", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "n"), (TETRAGON_PROMPT, ""), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")]),
+        ("cancel", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "y"), (CODE_PROMPT, SECRET), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, ""), (CONFIRM_PROMPT, "")]),
+        ("cancel-tetragon", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "n"), (TETRAGON_PROMPT, ""), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "n")]),
         ("invalid-code", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, "invalid-code")]),
         ("end-of-input", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, b"\x04")]),
         ("oversized-code", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, "xeas1." + "A" * 16379)]),
-        ("build", [(PACKAGE_PROMPT, "3"), (CENTRAL_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "yes")]),
-        ("enrollment-failure", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "y"), (CODE_PROMPT, SECRET), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")]),
+        ("build", [(PACKAGE_PROMPT, "3"), (CENTRAL_PROMPT, "n"), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "yes")]),
+        ("enrollment-failure", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "y"), (CODE_PROMPT, SECRET), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")]),
     ]
     for name, exchanges in cases:
         with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
@@ -209,12 +215,12 @@ def main():
             if name == "cancel":
                 (work / "recovery").write_text("PRESERVED_RECOVERY\n")
                 (work / "recovery").chmod(0o600)
-            expected = 1 if name in ("cancel", "invalid-code", "end-of-input", "oversized-code", "enrollment-failure") else 0
+            expected = 1 if name in ("cancel", "cancel-tetragon", "invalid-code", "end-of-input", "oversized-code", "enrollment-failure") else 0
             output = run_terminal(work, exchanges, expected, enrollment_failure=name == "enrollment-failure")
             assert "로컬 RPM:" in output and "17.el10.x86_64.rpm" in output
             assert "17.el9.x86_64.rpm" not in output and "17.el10.aarch64.rpm" not in output
             calls = (work / "calls").read_text()
-            if name in ("cancel", "invalid-code", "end-of-input", "oversized-code"):
+            if name in ("cancel", "cancel-tetragon", "invalid-code", "end-of-input", "oversized-code"):
                 assert_no_mutations(work)
                 assert "A" * 64 not in output
             elif name in ("central-web", "enrollment-failure"):
@@ -228,18 +234,28 @@ def main():
                 assert (work / "recovery").read_text() == "PRESERVED_RECOVERY\n"
             if name == "build":
                 assert "build\n" in calls
+            if name == "tetragon-default":
+                assert "tetragon preflight\n" in calls and "tetragon install\n" in calls
+                assert calls.index("tetragon preflight\n") < calls.index("rpm -Uvh")
+                assert "Tetragon 프로세스 수집기: 설치·연결" in output
+                assert "v1.8.0" in output and "체크섬" in output and "PyYAML" in output
+                for step in range(1, 8):
+                    assert f"{step}/7 " in output
+            else:
+                assert "tetragon preflight\n" not in calls and "tetragon install\n" not in calls
 
     with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
         work = fixture(directory)
         manual = str(work / "manual" / "manual package.rpm")
-        run_terminal(work, [(PACKAGE_PROMPT, "2"), ("설치할 RPM 경로: ", manual), (CENTRAL_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")])
+        run_terminal(work, [(PACKAGE_PROMPT, "2"), ("설치할 RPM 경로: ", manual), (CENTRAL_PROMPT, "n"), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")])
         assert f"rpm -Uvh -- {manual}" in (work / "calls").read_text()
 
     for interrupt in (signal.SIGINT, signal.SIGTERM):
         for interrupted_step in (
             [(CODE_PROMPT, None)],
             [(CODE_PROMPT, SECRET.encode())],
-            [(CODE_PROMPT, SECRET), (WEB_PROMPT, None)],
+            [(CODE_PROMPT, SECRET), (TETRAGON_PROMPT, None)],
+            [(CODE_PROMPT, SECRET), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, None)],
         ):
             with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
                 work = fixture(directory)
@@ -251,7 +267,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
         work = fixture(directory)
-        run_terminal(work, [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, SECRET), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")], allexport=True)
+        run_terminal(work, [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, ""), (CODE_PROMPT, SECRET), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")], allexport=True)
         assert (work / "code-creation-environment").exists()
 
     print("Installer PTY checks passed. No host packages or services were changed.")

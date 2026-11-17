@@ -52,11 +52,13 @@ Xe-AntiShell/
 ├── packaging/
 │   ├── install_test.sh            # Installer command-mock checks without host mutations
 │   ├── install-wizard.sh          # No-argument Korean TTY setup and hidden installation-code input
+│   ├── install-tetragon.sh        # Explicit collector setup and distribution Python selection
+│   ├── install_tetragon_test.sh   # Mocked Python selection/dependency regression checks
 │   ├── install_wizard_test.py     # Isolated PTY interaction/privacy checks
 │   ├── audit/                     # Opt-in audit plugin and exec-rule templates
 │   ├── rpm/                       # RPM package skeleton
 │   ├── systemd/                   # Generic agent/web/central units
-│   └── tetragon/                  # Reviewed standalone Tetragon/agent overrides
+│   └── tetragon/                  # Reviewed overrides plus pinned artifact/config/runtime/rollback helpers
 ├── testdata/events/               # Controlled events and positive/legitimate process scenarios
 ├── third_party/licenses/          # Upstream Go/runtime license texts for redistribution
 ├── protocol/                      # Independently tagged, stdlib-only shared Go module
@@ -70,6 +72,7 @@ Xe-AntiShell/
 │   ├── check-detection.py         # Temporary agent/CLI replay check without live changes
 │   └── check_source_test.py       # Isolated Git/archive hygiene regression tests
 ├── devdocs/plans/
+│   ├── tetragon-installation.md    # Optional collector install, verification and rollback design
 │   ├── enrollment-diagnostics.md  # Credential-safe failure categories and enrollment status
 │   ├── interactive-installation.md # TTY workflow and trusted single-code enrollment
 │   ├── rocky10-package-validation.md # EL10 userspace/RPM scope and kernel validation boundary
@@ -87,7 +90,8 @@ Xe-AntiShell/
 │   ├── web-monitor-panel.md       # Local read-only web panel design
 │   └── webshell-process-detection.md # Opt-in process rules, privacy and staged validation
 ├── devdocs/analysis/
-│   └── managed-v1-operations.md   # Generic enrollment, policy, removal and trust procedures
+│   ├── managed-v1-operations.md   # Generic enrollment, policy, removal and trust procedures
+│   └── tetragon-installation.ko.md # Existing-agent collector setup and manual procedure
 ├── devdocs/reviews/
 │   └── managed-agent-security.md  # Policy/delivery/response boundaries and tests
 ├── Linux_Host_Security_Platform_Design_v0.1.md
@@ -192,6 +196,9 @@ auditd dispatcher
   used only when procfs bootstrap fails and unreferenced expired rows are
   removed in bounded retention batches.
 - Tetragon is an external collector adapter, not a hard dependency of the agent core.
+  The optional installer verifies a pinned upstream archive and actual exec
+  observation before switching the existing agent. Installation helpers are
+  separate from the privileged daemon and retain rollback backups.
 - On the validated host, Tetragon provides process exec/exit and source ancestry;
   full stream context is bounded in memory while only configured shell/origin
   candidates and their ancestors are persisted. Flattened Tetragon argv remains

@@ -40,5 +40,9 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      - name: Install installer verification dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y python3-yaml
       - name: Verify agent, shared protocol and static binaries
         run: make verify
