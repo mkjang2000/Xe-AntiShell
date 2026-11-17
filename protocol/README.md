@@ -5,13 +5,17 @@ server. This Go 1.22 module uses only the standard library and is licensed under
 the [MIT License](LICENSE).
 
 ```sh
-go get github.com/mkjang2000/Xe-AntiShell/protocol@v0.1.0
+go get github.com/mkjang2000/Xe-AntiShell/protocol@v0.1.1
 ```
 
 - `model` contains collector-independent host, capability, process, event,
   finding and status definitions.
 - `managed` contains bounded enrollment, heartbeat, delivery and policy wire
   types, Ed25519 policy/removal signing, and recovery-code verification.
+- `managed.InstallationCode` carries a bound enrollment credential, central URL,
+  expiry and public CA in one operator-delivered `xeas1.` value. Obtain it through
+  an authenticated channel, protect it as a secret, and validate it before sending
+  the enrollment credential. It is a transport envelope, not a signed policy.
 
 The module contains no service, database, collector, response executor or host
 configuration. Callers enforce transport limits and own durable delivery,
@@ -22,6 +26,10 @@ revision, authorization and single-use recovery/removal state.
 Version `v0.1.0` extracts the existing agent and central contracts without changing
 field order, JSON/YAML tags, validation, signature domains or recovery digests.
 The managed wire schema remains `1`; the core event schema remains `0.1`.
+
+Version `v0.1.1` adds installation-code helpers and strict enrollment-origin
+validation. Existing enrollment responses, signed policies, removal grants and
+recovery verification digests are unchanged.
 
 Signing marshals the typed payload with `encoding/json`, including declaration
 order and nil-versus-empty collection behavior. Preserve these bytes when
