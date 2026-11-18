@@ -130,7 +130,7 @@ class Fixture(unittest.TestCase):
         self.patches = [
             mock.patch("setup_workflow.platform.machine", return_value="x86_64"),
             mock.patch("setup_workflow.acquire_archive", return_value=Path("/fixture/verified.tar.gz")),
-            mock.patch("setup_workflow.extract_release", side_effect=stage_release),
+            mock.patch("setup_state.extract_release", side_effect=stage_release),
             mock.patch("setup_workflow.wait_health"),
             mock.patch("setup_workflow.verify_exec"),
             mock.patch("setup_workflow.verify_agent"),
@@ -197,6 +197,9 @@ class ConfigurationTests(Fixture):
 class TransactionTests(Fixture):
     def test_success_and_repeat_do_not_restart(self):
         self.run_setup()
+        extraction_dir = self.mocks[2].call_args.args[1]
+        self.assertEqual(extraction_dir.parent, self.paths.base)
+        self.assertFalse(extraction_dir.exists())
         self.assertEqual(self.paths.unit.read_bytes(), UNIT)
         self.assertEqual(self.paths.agent_dropin.read_bytes(), AGENT_DROPIN)
         self.assertTrue(self.runner.active["tetragon.service"])
@@ -207,6 +210,14 @@ class TransactionTests(Fixture):
         self.assertEqual(self.mocks[3].call_count, 2)
         self.assertEqual(self.mocks[4].call_count, 2)
         self.assertEqual(self.mocks[5].call_count, 2)
+
+    def test_noexec_release_mount_does_not_start_services(self):
+        with mock.patch("setup_state.os.statvfs", return_value=mock.Mock(f_flag=os.ST_NOEXEC)):
+            with self.assertRaisesRegex(SetupError, "noexec"):
+                self.run_setup()
+        self.mocks[2].assert_not_called()
+        self.assertFalse(self.paths.version.exists())
+        self.assertEqual(self.mutations(), [])
 
     def test_failed_agent_verification_restores_and_can_retry(self):
         self.mocks[5].side_effect = SetupError("no live agent events")

@@ -5,7 +5,7 @@ import platform
 from pathlib import Path
 import tempfile
 
-from artifacts import acquire_archive, extract_release
+from artifacts import acquire_archive
 from setup_common import Paths, SetupError, install_lock, rollback_guard, trusted_path
 from setup_config import prepare_config
 from setup_runtime import Runner, verify_agent, verify_exec, wait_health
@@ -49,13 +49,9 @@ def _run_locked(archive, paths, runner):
     transaction = Transaction(paths, services, original)
     with tempfile.TemporaryDirectory(prefix="xeas-tetragon-setup-") as work:
         work = Path(work)
-        stage = None
+        verified = None
         if not installed or archive is not None:
             verified = acquire_archive(Path(archive) if archive is not None else None, work)
-            if not installed:
-                stage = work / "release"
-                stage.mkdir(mode=0o700)
-                extract_release(verified, stage)
         # An already verified installation needs no writes or restarts.
         unchanged = (installed and paths.unit.exists() and paths.agent_dropin.exists()
                      and paths.policies.is_dir() and original == target
@@ -71,8 +67,8 @@ def _run_locked(archive, paths, runner):
             if paths.config.read_bytes() != original:
                 raise SetupError("설치 중 에이전트 설정이 변경되어 전환 전에 중단했습니다.")
             transaction.backup_originals()
-            if stage is not None:
-                transaction.install_release(stage)
+            if not installed:
+                transaction.install_release(verified)
             transaction.create_dir(paths.policies)
             if not paths.unit.exists():
                 transaction.write_unit(UNIT)

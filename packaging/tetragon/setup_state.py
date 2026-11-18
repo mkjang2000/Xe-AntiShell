@@ -8,7 +8,7 @@ import shutil
 import stat
 import tempfile
 
-from artifacts import SHA256, VERSION
+from artifacts import SHA256, VERSION, extract_release
 from setup_common import SetupError, atomic_write, ensure_dir, trusted_path
 
 
@@ -105,12 +105,15 @@ class Transaction:
             self.created_dirs.append(path)
         ensure_dir(path, mode)
 
-    def install_release(self, stage):
+    def install_release(self, archive):
         self.create_dir(self.paths.base)
-        # Copy into a private sibling first so cross-filesystem /tmp is supported.
+        if os.statvfs(self.paths.base).f_flag & os.ST_NOEXEC:
+            raise SetupError("Tetragon 설치 경로가 noexec로 마운트되어 실행할 수 없습니다.")
+        # Extract under the final parent. Copying a tree from /tmp preserves
+        # extended attributes, including the temporary SELinux file context.
         temporary = Path(tempfile.mkdtemp(prefix=".install-", dir=str(self.paths.base)))
         try:
-            shutil.copytree(stage, temporary, dirs_exist_ok=True)
+            extract_release(archive, temporary)
             seal_release(temporary)
             if self.paths.version.exists() or self.paths.version.is_symlink():
                 raise SetupError("Tetragon 설치 경로가 실행 중 변경되었습니다.")
