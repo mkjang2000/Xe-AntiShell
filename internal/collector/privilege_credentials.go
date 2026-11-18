@@ -26,9 +26,9 @@ type tetragonCredentials struct {
 }
 
 type tetragonCapabilities struct {
-	Effective   []string `json:"effective"`
-	Permitted   []string `json:"permitted"`
-	Inheritable []string `json:"inheritable"`
+	Effective   tetragonCapabilityList `json:"effective"`
+	Permitted   tetragonCapabilityList `json:"permitted"`
+	Inheritable tetragonCapabilityList `json:"inheritable"`
 }
 
 type tetragonNamespace struct {

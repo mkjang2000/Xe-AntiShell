@@ -43,6 +43,7 @@ Xe-AntiShell/
 │   ├── buildinfo/                 # Injected running RPM epoch/version/release/architecture
 │   ├── capability/                # Host/kernel feature discovery
 │   ├── collector/                 # Tetragon, audit, and replay adapters
+│   │   ├── capability_json.go     # Private pinned-token decode with standard JSON fallback
 │   │   ├── audit_argv.go          # Bounded count/index validation for exact exec arguments
 │   │   ├── privilege_observation.go # Same-hook credential pairs with kernel task identity
 │   │   ├── privilege_credentials.go # Complete credential/capability/namespace decoding
@@ -67,7 +68,7 @@ Xe-AntiShell/
 │   ├── releasepublish/            # Explicit publisher commands, private-key file safety and manifest handling
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
 │   ├── storage/                   # Serialized SQLite persistence and embedded migrations
-│   │   ├── observations.go        # Atomic evidence/outbox save and bounded writer-reservation retry
+│   │   ├── observations.go        # Atomic evidence/outbox save, call-local JSON reuse and bounded writer retry
 │   │   └── process_context.go     # Durable operation context merge preserving process lifecycle
 │   ├── updates/                   # Publisher/deployment trust, private jobs, RPM apply and collection recheck
 │   └── webpanel/                  # Authentication, monitoring APIs and embedded UI

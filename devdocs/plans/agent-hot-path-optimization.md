@@ -88,6 +88,54 @@ identity. Do not carry a local validation result across queue/API boundaries.
 
 ## 3. JSON, ancestry and storage work
 
+The first constrained 60-second full-pipeline comparison preserved the exact
+source, event and finding hashes but reduced Agent CPU by about 30%, short of
+the first-stage 50% objective. This activates the next measured stage; the
+first patch is not evidence that the full resource target has been achieved.
+
+The next candidate profile found JSON Decoder.Decode in roughly 37% of CPU
+samples and SQLite prepareV2 in roughly 12% (nested cumulative attribution).
+Prototype a narrow capability-list decoder before any general transport change.
+Only a completely recognized JSON array of unescaped, known pinned ASCII enum
+strings may use its fast path. Use immutable canonical strings and one owned
+slice; validate whitespace, commas, delimiters and complete consumption. All
+escaped/unknown/null/overlong/other inputs fall back to encoding/json decoding
+of []string, retaining its type/syntax rejection and future-enum semantics.
+Do not skip decoding process/ancestor fields on unchanged credential events.
+Compare values, nil/empty and rejection against the standard decoder with
+differential/property/fuzz tests and existing full-event goldens. No general
+JSON parser replacement or dependency is introduced.
+
+First reuse freshly marshaled event JSON only inside one storage transaction:
+keep the public SaveEventResult behavior, return encoded bytes from a private
+helper, and use those bytes as the Event field of the managed bundle. Compare
+the complete bundle bytes against the existing protocol serializer, including
+nil/empty findings, Unicode/HTML escaping and optional observation fields.
+Do not skip queue privacy/size validation or cache mutable public evidence.
+
+The RawMessage wrapper prototype passed byte-equality tests but regressed its
+serialization benchmark because encoding/json rescans/compacts the event bytes.
+Reject that wrapper. Instead assemble the fixed two-field envelope from event
+bytes freshly produced by json.Marshal in this same call and separately
+json.Marshal'ed findings (including null versus empty arrays). Only this private
+provenance is allowed; imported/external byte strings cannot use the helper.
+The existing outbox Record validation still validates the resulting JSON.
+Keep complete protocol-serializer byte comparisons as an evolution guard and
+retain this implementation only if measurements show an actual improvement.
+
+If a new profile confirms material SQLite compile/exec overhead, batch only
+the non-context process projections in PersistObservation into a bounded
+multi-row UPSERT. Keep SaveProcess unchanged for public callers and retain
+operation-specific lifecycle merging. Preserve order with a single-row fallback
+for duplicate process keys, validate every row, check RowsAffected against the
+number of rows and roll back the whole observation on cross-boot conflicts.
+The maximum is 65 rows/910 parameters. Transaction boundaries, FULL durability,
+ACK obligations, schema and retained event bytes must remain unchanged. Require
+differential row/finding/outbox and rollback/duplicate/lifecycle tests before
+the same-input full-pipeline comparison. SQL text reuse is not a prepared SQLite
+statement cache in the pinned driver; database/sql PrepareContext alone still
+calls prepareV2 and finalize per execution and is not an effective remedy.
+
 Re-profile after stage2. Separate byte limits, privacy normalization and queue
 ownership from their current repeated serialization costs. Keep equivalent
 limits and privacy behavior and audit all nested pointer/slice ownership before
@@ -126,7 +174,7 @@ complete same-hook reads; it is not part of the initial production patch.
 - Clone/mutation tests and race checks: a later mutation must not reuse stale
   validation or change queued/historical evidence.
 - No automatic service trust exceptions, sampling or evidence aggregation in
-  the initial patch. RustDesk's workload does not grant it detection immunity.
+  the initial patch. A busy service's workload does not grant it detection immunity.
 - CPU throttling and memory limits are protection/measurement controls; report
   their effects on queue/latency/loss as part of resource acceptance.
 

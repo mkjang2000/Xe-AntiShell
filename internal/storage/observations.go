@@ -57,7 +57,7 @@ func (s *Store) PersistObservation(ctx context.Context, event model.Event, findi
 	}
 	defer tx.Rollback()
 	child := &Store{db: s.db, tx: tx}
-	inserted, err := child.SaveEventResult(ctx, event)
+	inserted, eventJSON, err := child.saveEventResult(ctx, event)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (s *Store) PersistObservation(ctx context.Context, event model.Event, findi
 			return err
 		}
 		if enabled > 0 {
-			payload, err := json.Marshal(managed.EventBundle{Event: event, Findings: findings})
+			payload, err := marshalEventBundle(eventJSON, findings)
 			if err != nil {
 				return err
 			}
@@ -95,4 +95,25 @@ func (s *Store) PersistObservation(ctx context.Context, event model.Event, findi
 		}
 	}
 	return tx.Commit()
+}
+
+// marshalEventBundle accepts only event JSON freshly encoded by saveEventResult
+// in this same observation. Both fields already have encoding/json's escaping;
+// assembling the fixed protocol envelope avoids scanning the event a second
+// time. Imported or caller-provided bytes must never enter this private path.
+// This mirrors the pinned EventBundle's two fields; changes to its fields or
+// MarshalJSON require reviewing this helper and the byte-equivalence tests.
+func marshalEventBundle(eventJSON json.RawMessage, findings []model.Finding) ([]byte, error) {
+	findingJSON, err := json.Marshal(findings)
+	if err != nil {
+		return nil, err
+	}
+	const eventPrefix = `{"event":`
+	const findingsPrefix = `,"findings":`
+	payload := make([]byte, 0, len(eventPrefix)+len(eventJSON)+len(findingsPrefix)+len(findingJSON)+1)
+	payload = append(payload, eventPrefix...)
+	payload = append(payload, eventJSON...)
+	payload = append(payload, findingsPrefix...)
+	payload = append(payload, findingJSON...)
+	return append(payload, '}'), nil
 }

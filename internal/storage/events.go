@@ -37,25 +37,33 @@ func (s *Store) SaveEvent(ctx context.Context, event model.Event) error {
 // stable source event returns inserted=false; reuse of an ID for different
 // source content returns ErrConflict.
 func (s *Store) SaveEventResult(ctx context.Context, event model.Event) (bool, error) {
+	inserted, _, err := s.saveEventResult(ctx, event)
+	return inserted, err
+}
+
+// saveEventResult returns the freshly encoded event for use by this observation's
+// outbox bundle. Every call validates and encodes current values; no caller-owned
+// object or encoded evidence is cached between calls.
+func (s *Store) saveEventResult(ctx context.Context, event model.Event) (bool, json.RawMessage, error) {
 	if event.ID == "" {
-		return false, errors.New("storage: event ID is required")
+		return false, nil, errors.New("storage: event ID is required")
 	}
 	if event.SchemaVersion == "" {
-		return false, errors.New("storage: event schema version is required")
+		return false, nil, errors.New("storage: event schema version is required")
 	}
 	if event.Type == "" {
-		return false, errors.New("storage: event type is required")
+		return false, nil, errors.New("storage: event type is required")
 	}
 	if event.EventTime.IsZero() || event.IngestTime.IsZero() {
-		return false, errors.New("storage: event and ingest times are required")
+		return false, nil, errors.New("storage: event and ingest times are required")
 	}
 	if event.Sequence > math.MaxInt64 {
-		return false, errors.New("storage: event sequence exceeds SQLite integer range")
+		return false, nil, errors.New("storage: event sequence exceeds SQLite integer range")
 	}
 
 	body, err := json.Marshal(event)
 	if err != nil {
-		return false, fmt.Errorf("storage: encode event %q: %w", event.ID, err)
+		return false, nil, fmt.Errorf("storage: encode event %q: %w", event.ID, err)
 	}
 	result, err := s.executor().ExecContext(ctx, `
 INSERT INTO events(
@@ -70,31 +78,31 @@ ON CONFLICT(event_id) DO NOTHING`,
 		event.Process.Key, body,
 	)
 	if err != nil {
-		return false, fmt.Errorf("storage: insert event %q: %w", event.ID, err)
+		return false, nil, fmt.Errorf("storage: insert event %q: %w", event.ID, err)
 	}
 	inserted, err := result.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("storage: inspect event insert %q: %w", event.ID, err)
+		return false, nil, fmt.Errorf("storage: inspect event insert %q: %w", event.ID, err)
 	}
 	if inserted == 1 {
 		if err := s.recordSequence(ctx, event); err != nil {
-			return false, err
+			return false, nil, err
 		}
-		return true, nil
+		return true, body, nil
 	}
 
 	var existing []byte
 	if err := s.executor().QueryRowContext(ctx, `SELECT event_json FROM events WHERE event_id = ?`, event.ID).Scan(&existing); err != nil {
-		return false, fmt.Errorf("storage: read duplicate event %q: %w", event.ID, err)
+		return false, nil, fmt.Errorf("storage: read duplicate event %q: %w", event.ID, err)
 	}
 	if bytes.Equal(existing, body) {
-		return false, nil
+		return false, body, nil
 	}
 	existingEvent, decodeErr := decodeEvent(existing)
 	if decodeErr == nil && sameSourceEvent(existingEvent, event) {
-		return false, nil
+		return false, body, nil
 	}
-	return false, fmt.Errorf("%w: event ID %q", ErrConflict, event.ID)
+	return false, nil, fmt.Errorf("%w: event ID %q", ErrConflict, event.ID)
 }
 
 func sameSourceEvent(left, right model.Event) bool {
