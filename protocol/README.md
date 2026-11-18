@@ -40,6 +40,15 @@ captured before extraction and protect compatibility alongside legacy-policy,
 domain-separation, replay and target-scope regression tests. The fixture keys are
 public, deterministic test data only.
 
+A signed detection policy can carry `service_observations`. Omitting this field
+inherits the host's configured scopes. An explicit empty array clears all
+scopes. A populated array replaces them for services selected by the policy.
+A CIDR with omitted or empty ports allows every port on that prefix. An empty
+destination list disables that service's TCP destination rule. Publishers must
+check support on each target before sending the field, including an empty list.
+Legacy agents strictly decode their supported schema. The entire signed policy
+envelope, including the signature and key identifier, fits within 64 KiB.
+
 The agent keeps aliases for these core definitions in its internal model package;
 agent-local history and operator UI models remain outside this module. Both
 projects pin a published module version. Repository releases use

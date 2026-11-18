@@ -2,6 +2,7 @@ package managed
 
 import (
 	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -34,6 +35,8 @@ type DetectionPolicy struct {
 	WebServices          []string `json:"web_services"`
 	Shells               []string `json:"shells"`
 	AllowedPairs         []string `json:"allowed_pairs"`
+	// Omitted inherits the host configuration. A present list replaces it in full.
+	ServiceObservations *[]ServiceObservationPolicy `json:"service_observations,omitempty" yaml:"service_observations,omitempty"`
 }
 
 type ResponsePolicy struct {
@@ -74,6 +77,9 @@ func (p Policy) Validate() error {
 	}
 	if err := validateValues(p.Detection.WebServices, 1024, false); err != nil {
 		return fmt.Errorf("web services: %w", err)
+	}
+	if err := validateSignedServiceObservations(p.Detection.ServiceObservations); err != nil {
+		return err
 	}
 	if len(p.Detection.AllowedPairs) > 512 {
 		return errors.New("too many detection exceptions")
@@ -142,10 +148,32 @@ func SignPolicy(policy Policy, keyID string, private ed25519.PrivateKey) (Signed
 		return SignedPolicy{}, err
 	}
 	signature, err := signValue("policy", keyID, policy, private, MaxPolicyBytes)
-	return SignedPolicy{Policy: policy, KeyID: keyID, Signature: signature}, err
+	if err != nil {
+		return SignedPolicy{}, err
+	}
+	signed := SignedPolicy{Policy: policy, KeyID: keyID, Signature: signature}
+	if err = signed.validateWireSize(); err != nil {
+		return SignedPolicy{}, err
+	}
+	return signed, nil
+}
+
+// The size limit on the transport includes the key ID and signature envelope.
+func (s SignedPolicy) validateWireSize() error {
+	body, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	if len(body) > MaxPolicyBytes {
+		return errors.New("signed policy exceeds its wire size limit")
+	}
+	return nil
 }
 
 func VerifyPolicy(signed SignedPolicy, trusted map[string]ed25519.PublicKey, agentID, enrollmentID string, minimumRevision uint64, now time.Time) (Policy, error) {
+	if err := signed.validateWireSize(); err != nil {
+		return Policy{}, err
+	}
 	if err := verifyValue("policy", signed.KeyID, signed.Policy, signed.Signature, trusted, MaxPolicyBytes); err != nil {
 		return Policy{}, err
 	}
