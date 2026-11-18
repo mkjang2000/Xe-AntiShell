@@ -14,7 +14,7 @@ func testParameters() Argon2Parameters {
 
 func testCredentials(t *testing.T) Credentials {
 	t.Helper()
-	credentials, err := GenerateCredentials("admin", "correct-horse-battery-staple", testParameters())
+	credentials, err := GenerateCredentials("admin", "correct-horse-battery-staple1!", testParameters())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,13 +23,13 @@ func testCredentials(t *testing.T) Credentials {
 
 func TestCredentialsVerify(t *testing.T) {
 	credentials := testCredentials(t)
-	if !credentials.Verify("admin", "correct-horse-battery-staple") {
+	if !credentials.Verify("admin", "correct-horse-battery-staple1!") {
 		t.Fatal("valid credentials were rejected")
 	}
 	if credentials.Verify("admin", "wrong-password-value") {
 		t.Fatal("wrong password was accepted")
 	}
-	if credentials.Verify("other", "correct-horse-battery-staple") {
+	if credentials.Verify("other", "correct-horse-battery-staple1!") {
 		t.Fatal("wrong username was accepted")
 	}
 }

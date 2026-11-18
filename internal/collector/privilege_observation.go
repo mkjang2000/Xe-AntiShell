@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -71,19 +72,19 @@ func normalizeTetragonCredential(envelope tetragonEnvelope, ingested time.Time, 
 	if err != nil || result != nil && *result > 0 {
 		return model.Event{}, ErrUnsupportedEvent
 	}
-	observation := &model.CredentialObservation{Before: before, After: after, TGID: int(tgid), TID: int(tid), TaskStartTimeNS: taskStart,
+	observation := &model.CredentialObservation{Before: before.snapshot, After: after.snapshot, TGID: int(tgid), TID: int(tid), TaskStartTimeNS: taskStart,
 		Evidence: model.CredentialEvidence, PolicyName: probe.PolicyName, Function: probe.Function, ReturnValue: result, Outcome: "unknown"}
 	if result != nil {
 		if *result < 0 {
 			observation.Outcome = "failed"
-		} else if before.Complete() && after.Complete() {
+		} else if before.complete && after.complete {
 			observation.Outcome = "applied"
 		}
 	}
-	if err := observation.Validate(); err != nil {
-		return model.Event{}, ErrUnsupportedEvent
-	}
-	if before.Equal(after) {
+	// Identity/tuple/result were checked above and each fresh snapshot was
+	// validated exactly once while decoding. Keep those local facts here;
+	// public consumers still validate independently after ownership transfer.
+	if before.complete && after.complete && reflect.DeepEqual(before.snapshot, after.snapshot) {
 		// commit_creds also runs on unchanged exec credentials. This is an
 		// intentional userspace filter, not a dropped kernel event.
 		return model.Event{}, ErrUnsupportedEvent
@@ -98,16 +99,16 @@ func normalizeTetragonCredential(envelope tetragonEnvelope, ingested time.Time, 
 	for index := range event.Ancestors {
 		event.Ancestors[index].Argv = nil
 	}
-	if !before.Complete() {
+	if !before.complete {
 		markPartial(&event, "credential.before")
 	}
-	if !after.Complete() {
+	if !after.complete {
 		markPartial(&event, "credential.after")
 	}
 	if result == nil {
 		markPartial(&event, "credential.return_value")
 	}
-	if before == nil || before.UserNamespace.Scope() == "unknown" || after == nil || after.UserNamespace.Scope() == "unknown" {
+	if before.snapshot == nil || before.snapshot.UserNamespace.Scope() == "unknown" || after.snapshot == nil || after.snapshot.UserNamespace.Scope() == "unknown" {
 		markPartial(&event, "credential.user_namespace_scope")
 	}
 	stable, _ := json.Marshal(struct {

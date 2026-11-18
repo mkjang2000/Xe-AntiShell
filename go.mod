@@ -3,7 +3,7 @@ module xe-antishell
 go 1.22
 
 require (
-	github.com/mkjang2000/Xe-AntiShell/protocol v0.3.0
+	github.com/mkjang2000/Xe-AntiShell/protocol v0.3.1
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/crypto v0.23.0
 	golang.org/x/sys v0.30.0

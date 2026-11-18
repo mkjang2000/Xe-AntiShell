@@ -80,7 +80,7 @@ func TestLoginDashboardAPIAndLogout(t *testing.T) {
 		t.Fatalf("wrong login response = %d", response.Code)
 	}
 
-	valid := url.Values{"username": {"admin"}, "password": {"correct-horse-battery-staple"}}
+	valid := url.Values{"username": {"admin"}, "password": {"correct-horse-battery-staple1!"}}
 	request = httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(valid.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.RemoteAddr = "127.0.0.1:1234"
@@ -142,7 +142,7 @@ func TestLoginConcurrencyIsBounded(t *testing.T) {
 		<-server.loginSlots
 		<-server.loginSlots
 	}()
-	form := url.Values{"username": {"admin"}, "password": {"correct-horse-battery-staple"}}
+	form := url.Values{"username": {"admin"}, "password": {"correct-horse-battery-staple1!"}}
 	request := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.RemoteAddr = "127.0.0.1:1234"

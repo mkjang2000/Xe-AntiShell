@@ -338,11 +338,12 @@ func normalizeTetragonContext(event *model.Event, source tetragonProcess, parent
 		event.Process.ParentKey = identity.ProcessKey(event.BootID, model.Process{ExecID: source.ParentExecID}, event.EventTime)
 	}
 	if parent != nil && parent.PID > 0 {
-		parentProcess := tetragonToProcess(*parent, observedAt)
-		event.Process.PPID = parentProcess.PID
+		// Parent credentials are converted below with the unique context list.
+		// Attribution here needs only the source PID and stable exec identity.
+		event.Process.PPID = parent.PID
 		if parent.ExecID != "" {
 			if source.ParentExecID == "" || source.ParentExecID == parent.ExecID {
-				event.Process.ParentKey = identity.ProcessKey(event.BootID, parentProcess, event.EventTime)
+				event.Process.ParentKey = identity.ProcessKey(event.BootID, model.Process{ExecID: parent.ExecID}, event.EventTime)
 				event.Process.Complete = true
 			} else {
 				// Contradictory identities must not attach a process to a parent

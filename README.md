@@ -325,6 +325,12 @@ sudo cat /root/xe-antishell-web-initial-password.txt
 sudo rm /root/xe-antishell-web-initial-password.txt
 ```
 
+New passwords require at least 8 Unicode characters, including an ASCII lowercase
+letter, digit and punctuation character (spaces do not count as punctuation).
+Passwords of 8 or 9 characters also require an ASCII uppercase letter. The
+maximum remains 1,024 UTF-8 bytes. Existing credentials continue to work without
+being checked against newer creation rules.
+
 Port 9088 serves plain HTTP. Do not open it to an untrusted network because the
 login password and session would not have transport encryption. The password
 hash uses Argon2id, and the root-only authentication file is delivered to the
@@ -371,8 +377,8 @@ separately dispatched `sentinel-updater` helper.
 The agent RPM owns no central files or service hooks. Distribution RPM triggers
 can still consume pending service restart markers from other packages.
 The released agent pins the published
-[`protocol v0.2.0`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.2.0/protocol)
-module, which includes optional typed execution/file/network facts and separate
+[`protocol v0.3.1`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.3.1/protocol)
+module, which includes optional typed execution/file/network/credential facts and separate
 signed package update contracts. Existing
 signature domains, stored identities and approved policy bytes are unchanged;
 consumers need observation-aware software to display the new fields.

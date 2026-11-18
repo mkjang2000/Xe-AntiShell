@@ -12,7 +12,7 @@
 - Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`, `cmd/sentinel-updater`
 - Developer Tool Entry: `cmd/xeas-release` (publisher signing tool, excluded from RPM payload)
 - Central Project: https://github.com/mkjang2000/Xe-AntiShell-Central
-- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.3.0`
+- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.3.1`
 - Build Command: `make build`, `make static`, or `make rpm`
 - Run Command: `build/sentineld --config configs/sentineld.yaml`
 - Test Command: `make verify` (source, shell/UI, vet, race tests, static build)
@@ -71,6 +71,7 @@ Xe-AntiShell/
 │   │   └── process_context.go     # Durable operation context merge preserving process lifecycle
 │   ├── updates/                   # Publisher/deployment trust, private jobs, RPM apply and collection recheck
 │   └── webpanel/                  # Authentication, monitoring APIs and embedded UI
+│       ├── password_policy.go     # New-password composition; legacy verification stays independent
 │       └── assets/                # Shared Korean labels, operator overview, feature states, history/resources/themes
 ├── configs/
 │   ├── examples/                  # Shareable collector/policy examples without host inventory
@@ -119,6 +120,7 @@ Xe-AntiShell/
 │   ├── mit-publication.md          # MIT, bundled notices and initial public push scope
 │   ├── central-management.md      # Central integration and installer boundaries
 │   ├── managed-agent-updates.md   # Enrollment-bound RPM update staging, apply, identity and recovery
+│   ├── agent-hot-path-optimization.md # Constrained-VPS CPU/GC/JSON optimization and correctness gates
 │   ├── privilege-detection.md     # Global root and same-hook credential detection/control contract
 │   ├── sqlite-startup-stability.md # Serialized SQLite, safe retry, recovery and staggered startup
 │   ├── central-agent-updates.md   # Central release catalog, rollout authorization and publisher trust separation
