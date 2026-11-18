@@ -27,15 +27,15 @@ func (e *Engine) evaluateCredentials(event model.Event, lineage AncestorProvider
 		restorable := isRootID(before.UID) || isRootID(before.SUID)
 		switch {
 		case sameNamespace && restorable:
-			rule = "privilege-root-restored"
+			rule = rulePrivilegeRootRestored
 			summary = "보유한 root 자격으로 EUID 0 복귀 관측. 승인된 작업인지 확인."
 			factors = append(factors, model.RiskFactor{ID: "root_identity_restored", Score: 40})
 		case sameNamespace && before.UserNamespace.Scope() == "host" && before.UID != nil && before.SUID != nil && !restorable:
-			rule = "privilege-host-root-gain"
+			rule = rulePrivilegeHostRootGain
 			summary = "동일 초기 user namespace에서 EUID 비0→0 변경 적용 관측. 승인된 권한 상승인지 확인."
 			factors = append(factors, model.RiskFactor{ID: "initial_namespace_root_gain", Score: 75})
 		default:
-			rule = "privilege-root-identity-change"
+			rule = rulePrivilegeRootIdentityChange
 			summary = "EUID 비0→0 변경 적용 관측. user namespace와 승인된 작업 범위를 확인."
 			factors = append(factors, model.RiskFactor{ID: "root_identity_change", Score: 50})
 		}
@@ -44,11 +44,11 @@ func (e *Engine) evaluateCredentials(event model.Event, lineage AncestorProvider
 	if rule == "" {
 		switch {
 		case gain:
-			rule = "privilege-capability-gain"
+			rule = rulePrivilegeCapabilityGain
 			summary = "프로세스 Capability 권한집합 증가 관측. user namespace와 승인된 작업인지 확인."
 			factors = append(factors, model.RiskFactor{ID: "capability_gain", Score: 45})
 		case activation:
-			rule = "privilege-capability-activated"
+			rule = rulePrivilegeCapabilityActivated
 			summary = "기존 permitted 범위의 Capability 활성화 관측. 승인된 작업인지 확인."
 			factors = append(factors, model.RiskFactor{ID: "permitted_capability_activation", Score: 25})
 		default:

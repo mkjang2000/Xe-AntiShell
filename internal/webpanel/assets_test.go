@@ -93,7 +93,10 @@ func runBrowserBehavior(t *testing.T, behavior string) {
 		t.Skip("Node.js is not installed; browser-script behavior test skipped")
 	}
 	var scripts bytes.Buffer
-	for _, name := range []string{"privilege.js", "presentation.js", "capabilities.js", "overview.js", "history.js", "resources.js", "app.js"} {
+	if err := writeRuleDefinitions(&scripts); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"capacity.js", "observations.js", "rules.js", "privilege.js", "presentation.js", "capabilities.js", "overview.js", "history.js", "resources.js", "app.js"} {
 		script, err := assets.ReadFile("assets/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -109,7 +112,7 @@ func runBrowserBehavior(t *testing.T, behavior string) {
 }
 
 func TestBrowserAssetsAvoidUnsafeDOMRendering(t *testing.T) {
-	for _, name := range []string{"privilege.js", "presentation.js", "capabilities.js", "overview.js", "app.js", "history.js", "resources.js", "theme.js"} {
+	for _, name := range []string{"capacity.js", "observations.js", "rules.js", "privilege.js", "presentation.js", "capabilities.js", "overview.js", "app.js", "history.js", "resources.js", "theme.js"} {
 		script, err := assets.ReadFile("assets/" + name)
 		if err != nil {
 			t.Fatal(err)

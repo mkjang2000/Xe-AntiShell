@@ -20,6 +20,7 @@ import (
 	"xe-antishell/internal/config"
 	"xe-antishell/internal/hostmetrics"
 	"xe-antishell/internal/model"
+	"xe-antishell/internal/storage"
 )
 
 type independentCentral struct {
@@ -149,6 +150,12 @@ func awaitIndependentCentral(t *testing.T, parent context.Context, stage string,
 	}
 }
 
+type centralAgentSnapshot struct {
+	ID         string            `json:"agent_id"`
+	Enrollment string            `json:"enrollment_id"`
+	Heartbeat  managed.Heartbeat `json:"heartbeat"`
+}
+
 func TestIndependentCentralWithMultipleAgents(t *testing.T) {
 	binary := os.Getenv("XEAS_CENTRAL_TEST_BINARY")
 	if binary == "" {
@@ -161,7 +168,10 @@ func TestIndependentCentralWithMultipleAgents(t *testing.T) {
 	services := make([]*Service, 2)
 	enrollments := make([]string, 2)
 	for i, id := range []string{"pilot-agent-a", "pilot-agent-b"} {
-		service, store := newTestService(t, config.CollectorDisabled, func(cfg *config.Config) { cfg.Agent.ID = id })
+		service, store := newTestService(t, config.CollectorDisabled, func(cfg *config.Config) {
+			cfg.Agent.ID = id
+			cfg.ServiceObservations = []config.ServiceObservationPolicy{observationScopeFixture(id + "-web.service")}
+		})
 		// All process and resource sources are synthetic, including early heartbeats.
 		service.metrics = hostmetrics.New(t.TempDir(), t.TempDir())
 		t.Cleanup(func() { shutdownService(t, service); _ = store.Close() })
@@ -208,11 +218,7 @@ func TestIndependentCentralWithMultipleAgents(t *testing.T) {
 	}
 	submit("shared-online")
 	awaitIndependentCentral(t, ctx, "initial delivery and heartbeats", func() bool {
-		var agents []struct {
-			ID         string            `json:"agent_id"`
-			Enrollment string            `json:"enrollment_id"`
-			Heartbeat  managed.Heartbeat `json:"heartbeat"`
-		}
+		var agents []centralAgentSnapshot
 		if central.request(ctx, http.MethodGet, "/admin/agents", nil, &agents) != nil || len(agents) != 2 {
 			return false
 		}
@@ -228,31 +234,70 @@ func TestIndependentCentralWithMultipleAgents(t *testing.T) {
 		return true
 	})
 	central.stop(t)
-	submit("shared-offline")
+	// Exercise a partial ACK and a separate final ACK after reconnecting.
+	const offlineCount = 65
+	expectedIDs := map[string]bool{"shared-online": true}
+	for i := 0; i < offlineCount; i++ {
+		id := fmt.Sprintf("shared-offline-%02d", i)
+		expectedIDs[id] = true
+		submit(id)
+	}
 	backlogs := make([]managed.Batch, len(services))
+	offline := make([]storage.DeliveryStatus, len(services))
+	recovered := make(map[string]storage.DeliveryStatus)
 	for i, service := range services {
-		waitFor(t, func() bool {
-			findings, err := service.ListFindings(ctx, 10)
+		awaitIndependentCentral(t, ctx, "first failed delivery while central is stopped", func() bool {
+			findings, err := service.ListFindings(ctx, len(expectedIDs))
 			status, statusErr := service.ManagedStatus(ctx)
-			return err == nil && statusErr == nil && len(findings) == 2 && status.Delivery.Pending == 1
+			offline[i] = status.Delivery
+			return err == nil && statusErr == nil && len(findings) == len(expectedIDs) && offline[i].Pending == offlineCount && offline[i].DisconnectAt != nil
 		})
+		if offline[i].FirstRecoveryACKAt != nil || offline[i].DrainedAt != nil || offline[i].OutageLostRecords != 0 {
+			t.Fatal("outage reported recovery or loss before the first successful ACK")
+		}
 		var err error
 		backlogs[i], err = service.store.DeliveryBatch(ctx, 64)
-		if err != nil || len(backlogs[i].Records) != 1 {
+		if err != nil || len(backlogs[i].Records) != 64 {
 			t.Fatal("offline observation did not retain its delivery obligation")
 		}
+		var firstBatchBytes int64
+		for _, record := range backlogs[i].Records {
+			firstBatchBytes += int64(len(record.Payload))
+		}
+		// The sender caps reads at 64 records. Recreate the final one from the
+		// same immutable event and finding to replay its original ACK later.
+		lastID := fmt.Sprintf("shared-offline-%02d", offlineCount-1)
+		event, err := service.store.GetEvent(ctx, lastID)
+		if err != nil {
+			t.Fatal("read final buffered event")
+		}
+		findings, err := service.ListFindings(ctx, 1)
+		if err != nil || len(findings) != 1 || len(findings[0].EvidenceEventIDs) != 1 || findings[0].EvidenceEventIDs[0] != lastID {
+			t.Fatal("read final buffered finding")
+		}
+		body, err := json.Marshal(managed.EventBundle{Event: event, Findings: findings})
+		if err != nil || offline[i].PendingBytes != firstBatchBytes+int64(len(body)) {
+			t.Fatalf("outbox size %d differs from durable observation payloads", offline[i].PendingBytes)
+		}
+		backlogs[i].Records = []managed.Record{{Sequence: offlineCount + 1, Kind: managed.RecordKindEventBundle, ID: lastID, Payload: body}}
 	}
 	central.start(t, ctx) // Preserve the original state, CA, policy and listener ports.
 	for i, service := range services {
 		awaitIndependentCentral(t, ctx, "automatic backlog acknowledgement", func() bool {
 			status, err := service.ManagedStatus(ctx)
-			return err == nil && status.Delivery.Pending == 0 && status.Delivery.Acknowledged == 2 && status.Delivery.LostRecords == 0
+			recovered[service.config.Agent.ID] = status.Delivery
+			return err == nil && status.Delivery.Pending == 0 && status.Delivery.PendingBytes == 0 && status.Delivery.Acknowledged == offlineCount+1 && status.Delivery.FirstRecoveryACKAt != nil && status.Delivery.DrainedAt != nil
 		})
+		done := recovered[service.config.Agent.ID]
+		if done.DisconnectAt == nil || !done.DisconnectAt.Equal(*offline[i].DisconnectAt) || done.FirstRecoveryACKAt.Before(*done.DisconnectAt) || !done.DrainedAt.After(*done.FirstRecoveryACKAt) || done.LostRecords != 0 || done.OutageLostRecords != 0 {
+			t.Fatal("outage checkpoints lost their sequence or reported lost records")
+		}
+		t.Logf("%s backlog %d record(s), %d payload bytes, first ACK after %v, drained after %v, outage loss %d", service.config.Agent.ID, offline[i].Pending, offline[i].PendingBytes, done.FirstRecoveryACKAt.Sub(*done.DisconnectAt), done.DrainedAt.Sub(*done.DisconnectAt), done.OutageLostRecords)
 		client, _, err := service.managedConnection(ctx)
 		if err != nil {
 			t.Fatal("restore enrolled transport")
 		}
-		if ack, err := client.Ingest(ctx, backlogs[i]); err != nil || ack.Acknowledged != 2 {
+		if ack, err := client.Ingest(ctx, backlogs[i]); err != nil || ack.Acknowledged != offlineCount+1 {
 			t.Fatal("previously acknowledged batch could not be safely replayed")
 		}
 		var rows []struct {
@@ -260,13 +305,13 @@ func TestIndependentCentralWithMultipleAgents(t *testing.T) {
 			ID      string              `json:"id"`
 			Payload managed.EventBundle `json:"payload"`
 		}
-		if err := central.request(ctx, http.MethodGet, "/admin/history?kind=event_bundle&agent_id="+service.config.Agent.ID, nil, &rows); err != nil || len(rows) != 2 {
+		if err := central.request(ctx, http.MethodGet, "/admin/history?kind=event_bundle&agent_id="+service.config.Agent.ID, nil, &rows); err != nil || len(rows) != len(expectedIDs) {
 			t.Fatal("central history lost or duplicated synthetic observations")
 		}
 		seen := map[string]bool{}
 		for _, row := range rows {
 			bundle := row.Payload
-			if seen[row.ID] || (row.ID != "shared-online" && row.ID != "shared-offline") || row.AgentID != service.config.Agent.ID || bundle.Event.HostID != row.AgentID || bundle.Event.ID != row.ID || len(bundle.Findings) != 1 {
+			if seen[row.ID] || !expectedIDs[row.ID] || row.AgentID != service.config.Agent.ID || bundle.Event.HostID != row.AgentID || bundle.Event.ID != row.ID || len(bundle.Findings) != 1 {
 				t.Fatal("central event bundles crossed agent boundaries or duplicated records")
 			}
 			finding := bundle.Findings[0]
@@ -276,4 +321,35 @@ func TestIndependentCentralWithMultipleAgents(t *testing.T) {
 			seen[row.ID] = true
 		}
 	}
+	// The central component uses its own protocol binary. Exercise the data
+	// that survives mTLS transport, central persistence, and the admin API.
+	awaitIndependentCentral(t, ctx, "central heartbeat with recovered capacity for both agents", func() bool {
+		var agents []centralAgentSnapshot
+		if central.request(ctx, http.MethodGet, "/admin/agents", nil, &agents) != nil || len(agents) != len(recovered) {
+			return false
+		}
+		for _, agent := range agents {
+			want, ok := recovered[agent.ID]
+			report := agent.Heartbeat.Status.CapabilityReport
+			if !ok || report == nil || agent.Heartbeat.AgentID != agent.ID || agent.Enrollment != agent.Heartbeat.EnrollmentID {
+				return false
+			}
+			details := report.Capabilities["storage.capacity"].Details
+			if details["outage_lost_records"] != "0" || details["pending_records"] != "0" || details["pending_bytes"] != "0" {
+				return false
+			}
+			for key, at := range map[string]*time.Time{"disconnect_at": want.DisconnectAt, "first_recovery_ack_at": want.FirstRecoveryACKAt, "drained_at": want.DrainedAt} {
+				got, err := time.Parse(time.RFC3339Nano, details[key])
+				if err != nil || !got.Equal(*at) {
+					return false
+				}
+			}
+		}
+		return true
+	})
+	t.Run("service_observation_findings", func(t *testing.T) {
+		for _, service := range services {
+			verifyCentralServiceObservationFindings(t, ctx, central, service, recovered[service.config.Agent.ID].Acknowledged)
+		}
+	})
 }

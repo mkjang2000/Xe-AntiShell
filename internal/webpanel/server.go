@@ -53,6 +53,7 @@ type Server struct {
 }
 
 type overviewResponse struct {
+	Rules        *model.RuleCatalog     `json:"rules,omitempty"`
 	ServerTime   time.Time              `json:"server_time"`
 	Status       model.AgentStatus      `json:"status"`
 	Capabilities model.CapabilityReport `json:"capabilities"`
@@ -163,9 +164,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.loginSubmit)
 	mux.Handle("POST /logout", s.authenticated(http.HandlerFunc(s.logout)))
+	mux.HandleFunc("GET /assets/rule-definitions.js", serveRuleDefinitions)
 	mux.Handle("GET /assets/", http.StripPrefix("/assets", s.static))
 	mux.Handle("GET /api/overview", s.authenticatedAPI(http.HandlerFunc(s.overview)))
 	mux.Handle("GET /api/process-tree", s.authenticatedAPI(http.HandlerFunc(s.processTree)))
+	mux.Handle("GET /api/observations", s.authenticatedAPI(http.HandlerFunc(s.observations)))
 	mux.Handle("GET /api/history", s.authenticatedAPI(http.HandlerFunc(s.history)))
 	mux.Handle("GET /api/services", s.authenticatedAPI(http.HandlerFunc(s.services)))
 	mux.Handle("GET /api/summary", s.authenticatedAPI(http.HandlerFunc(s.summary)))
@@ -343,6 +346,13 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	}); ok {
 		if status, err := client.ManagedStatus(ctx); err == nil {
 			response.Managed = status
+		}
+	}
+	if client, ok := s.agent.(interface {
+		Rules(context.Context) (model.RuleCatalog, error)
+	}); ok {
+		if catalog, err := client.Rules(ctx); err == nil {
+			response.Rules = &catalog
 		}
 	}
 	writeJSON(w, http.StatusOK, response)

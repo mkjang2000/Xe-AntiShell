@@ -190,7 +190,7 @@ func TestOperationRuntimeCapabilitiesNeedTheirOwnValidatedEvidence(t *testing.T)
 	prepareRuntimeReport(service)
 	setTestCollector(service, &runtimeTestCollector{health: collector.HealthSnapshot{Name: "tetragon-json", Running: true}})
 	service.setRuntimeState(model.AgentModeActive, model.HealthHealthy, "tetragon-json", nil)
-	service.recordRuntimeEvent(model.Event{Type: "process.exec", Source: "tetragon", Process: model.Process{PID: 1, Exe: "/usr/sbin/nginx"}})
+	service.recordRuntimeEvent(model.Event{Type: "process.exec", Source: "tetragon", Process: model.Process{PID: 1, Exe: "/usr/sbin/nginx"}}, 0)
 	before, _ := service.Capabilities(context.Background())
 	if before.Capabilities[capability.FileCapability].RuntimeState == "active" {
 		t.Fatal("exec proof falsely enabled file observation")

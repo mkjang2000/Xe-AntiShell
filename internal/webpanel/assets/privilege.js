@@ -1,13 +1,5 @@
 "use strict";
 
-const privilegeRuleLabels = {
-  "privilege-root-execution": {title:"전역 root 실행 관측",description:"EUID 0 실행과 주변 문맥을 관측했습니다. 승인된 작업인지 확인하세요."},
-  "privilege-root-restored": {title:"기존 root 자격으로 실행 권한 복귀",description:"같은 user namespace에서 UID 또는 saved UID 0을 가진 작업이 EUID 0으로 복귀했습니다. 인증·인가가 확인됐다는 뜻은 아닙니다."},
-  "privilege-host-root-gain": {title:"초기 user namespace의 root 권한 변경",description:"같은 초기 user namespace에서 EUID 비0→0 적용을 관측했습니다. 승인된 권한 상승인지 확인하세요. 컨테이너 탈출을 확정하지 않습니다."},
-  "privilege-root-identity-change": {title:"root 실행 신원 변경 관측",description:"EUID 비0→0 적용을 관측했습니다. namespace가 다르거나 확인되지 않을 수 있으므로 호스트 권한 탈취로 단정하지 않습니다."},
-  "privilege-capability-gain": {title:"프로세스 Capability 권한집합 증가",description:"보유 권한집합이 늘어난 것을 관측했습니다. user namespace와 승인된 작업 범위를 확인하세요."},
-  "privilege-capability-activated": {title:"기존 Capability의 실행 권한 활성화",description:"이미 permitted에 있던 권한이 effective로 활성화됐습니다. 새 permitted 권한 획득과 구분해 확인하세요."},
-};
 const privilegeFactorLabels = {
   root_execution:"EUID 0 실행을 관측했습니다. 권한 상승 원인을 확정하지 않습니다.",
   nonroot_parent_snapshot:"상위 프로세스의 실행 스냅샷에 EUID 비0이 있었습니다. 부모의 현재 권한이나 공격 성공을 증명하지 않습니다.",
@@ -21,7 +13,7 @@ const privilegeFactorLabels = {
   permitted_capability_activation:"이전 permitted 범위 안의 권한이 effective로 활성화됐습니다.",
   sensitive_capability_gain:"민감한 Capability가 새로 관측됐습니다. 실제 권한 범위는 user namespace에 따라 다릅니다.",
 };
-function isPrivilegeRule(value) {return Object.hasOwn(privilegeRuleLabels,value);}
+function isPrivilegeRule(value) {return ruleDefinition(value)?.profile === "privilege";}
 function findingResponseLabel(finding) {return finding?.detection_only===true&&isPrivilegeRule(finding.rule_id)?"권한 탐지 전용":operatorLabel("response",finding?.detection_only===true?"detection_only":finding?.response_decision||"unknown");}
 function privilegeConfidence(value) {
   return Number.isFinite(value)?`관측 근거 지표 · 원본 값 ${value} · 악성 확률이나 인증·인가 확인을 뜻하지 않습니다.`:"관측 근거 지표 미확인";

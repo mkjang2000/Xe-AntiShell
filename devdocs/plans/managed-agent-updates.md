@@ -194,3 +194,52 @@ The checks used synthetic packages and temporary fixture keys. They did not
 read the production publisher private key, install a host RPM, invoke a host
 updater service or perform a live remote update. Installed RPM/unit validation
 and an authorized staged rollout remain separate steps.
+
+## SELinux RPM scriptlet transition
+
+On an enforcing host, an RPM 32 update failed in `%prein` because SELinux
+denied the `nnp_transition` from `unconfined_service_t` to `rpm_script_t`.
+The RPM child inherited the updater unit's `NoNewPrivileges=yes` setting.
+RPM 33 sets `NoNewPrivileges=no` in the root package updater unit so SELinux
+can evaluate the normal scriptlet transition. The updater still verifies the
+signed release and install authorization before it invokes the fixed RPM
+command. The daemon and panel retain their own unit settings.
+
+An older agent checks that the updater unit comes from the RPM and has no
+drop-ins. Changing the updater through a drop-in makes the old inventory
+report `systemd_unavailable`. On an affected host, install the verified RPM
+as a local administrator to bootstrap the corrected service unit. Confirm
+the installed version, running agent and Tetragon receipt after restart.
+
+### One-time fleet bootstrap
+
+Use the matching EL9 or EL10 RPM 33 and its publisher manifest. On the
+trusted management controller, build the existing release verifier and
+verify the manifest and package before distributing them.
+
+```bash
+./scripts/build-release-tool.sh
+./build/xeas-release verify --manifest "$rpm.manifest.json" --rpm "$rpm"
+sha256sum -- "$rpm"
+```
+
+Distribute the verified RPM, its trusted digest and
+`scripts/bootstrap-rpm-updater.sh` through the existing authenticated host
+management channel. Group hosts by RPM OS major. Run the same command first
+as a preflight and then with `--apply` on each eligible host. When applying
+to a group, roll one host at a time or use a bounded batch.
+
+```bash
+sudo ./bootstrap-rpm-updater.sh "$rpm" "$trusted_digest"
+sudo ./bootstrap-rpm-updater.sh "$rpm" "$trusted_digest" --apply
+```
+
+The helper checks the platform, release identity, digest and packaged updater
+unit before changing the host. It takes the existing update-application lock
+and verifies the staged copy again. It removes the specifically named
+`90-rpm-selinux.conf` only if its original contents match the temporary
+repair and the corrected vendor unit is installed. It then verifies a
+healthy running RPM 33. At the first subsequent rollout, use Central to
+confirm a supported inventory and a successful signed upgrade with fresh
+Tetragon evidence. Verification of the package and local restart is separate
+from proof that a subsequent managed upgrade ran on an enforcing host.

@@ -60,6 +60,7 @@ test-scripts:
 	PYTHONDONTWRITEBYTECODE=1 python3 packaging/install_wizard_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s packaging/tetragon -p 'test_*.py'
 	bash scripts/build_rpm_test.sh
+	bash scripts/bootstrap_rpm_updater_test.sh
 	bash scripts/publish_release_test.sh
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p check_source_test.py
 

@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
+
+	"xe-antishell/internal/model"
 )
 
 func TestVersionDoesNotRequireDaemon(t *testing.T) {
@@ -14,6 +17,35 @@ func TestVersionDoesNotRequireDaemon(t *testing.T) {
 	if strings.TrimSpace(stdout.String()) != version {
 		t.Fatalf("unexpected version output %q", stdout.String())
 	}
+}
+
+func TestHumanStatusCollectionGap(t *testing.T) {
+	start := time.Date(2026, 1, 10, 10, 0, 0, 123456789, time.UTC)
+	end := start.Add(40 * time.Second)
+	details := map[string]string{"last_disconnect_at": start.Format(time.RFC3339Nano), "reconnect_attempts": "3"}
+	status := model.AgentStatus{Collector: "tetragon-json", CapabilityReport: &model.CapabilityReport{
+		Capabilities: map[string]model.Capability{"collector.tetragon": {Details: details}},
+	}}
+	verify := func(want string) {
+		t.Helper()
+		var output bytes.Buffer
+		writeCollectorGap(&output, status)
+		if output.String() != want {
+			t.Fatalf("collection gap output = %q, want %q", output.String(), want)
+		}
+	}
+	prefix := "Last collection interruption: " + start.Local().Format(time.RFC3339Nano) + "\nCollection recovery: "
+	const attempts = "\nReconnect attempts since startup: 3\n"
+	verify(prefix + "pending" + attempts)
+	details["last_recovered_at"] = end.Format(time.RFC3339Nano)
+	verify(prefix + end.Local().Format(time.RFC3339Nano) + attempts)
+	status.Collector = "audit-dispatcher"
+	verify("")
+	status.Collector = "tetragon-json"
+	delete(details, "last_disconnect_at")
+	verify("")
+	status.CapabilityReport = nil
+	verify("")
 }
 
 func TestDefaultSocketMatchesDaemonConfiguration(t *testing.T) {

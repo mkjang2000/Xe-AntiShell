@@ -31,8 +31,8 @@ func TestPersistObservationRollsBackEveryComponentOnInvalidFinding(t *testing.T)
 	event := testEvent("atomic-invalid", 10, time.Now().UTC())
 	finding := managedTestFinding(event)
 	finding.EvidenceEventIDs = []string{"not-durable"}
-	if err := store.PersistObservation(ctx, event, []model.Finding{finding}); err == nil {
-		t.Fatal("accepted finding without durable evidence")
+	if inserted, err := store.PersistObservationResult(ctx, event, []model.Finding{finding}); err == nil || inserted {
+		t.Fatalf("observation with missing evidence: inserted=%v err=%v", inserted, err)
 	}
 	if _, err := store.GetEvent(ctx, event.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("event survived rollback: %v", err)
@@ -71,9 +71,12 @@ func TestDeliverySequencesIgnoreSourceGapsAndIdempotentInsertions(t *testing.T) 
 	ctx := context.Background()
 	first := testEvent("source-first", 5, time.Now().UTC())
 	second := testEvent("source-second", 90, first.EventTime.Add(time.Second))
-	for _, event := range []model.Event{first, first, second} {
-		if err := store.PersistObservation(ctx, event, nil); err != nil {
-			t.Fatal(err)
+	for _, observation := range []struct {
+		event model.Event
+		new   bool
+	}{{first, true}, {first, false}, {second, true}} {
+		if inserted, err := store.PersistObservationResult(ctx, observation.event, nil); err != nil || inserted != observation.new {
+			t.Fatalf("observation %s: inserted=%v want=%v err=%v", observation.event.ID, inserted, observation.new, err)
 		}
 	}
 	audit := managed.AuditRecord{ID: "same-audit", Action: "test", OccurredAt: time.Now().UTC(), Result: "ok"}

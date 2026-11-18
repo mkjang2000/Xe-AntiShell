@@ -144,8 +144,8 @@ The agent controls one compiled monitor-only `commit_creds` policy in a separate
 private state directory. Arbitrary remote YAML/commands are not supported. The
 engine capability means the profile can be enabled; actual credential monitoring
 requires a new complete receipt in the current policy attachment epoch. The
-controller retries bounded control failures every15seconds; a failed process
-collector still requires its existing service recovery procedure.
+controller retries bounded control failures every 15 seconds. The agent also
+resubscribes if its selected Tetragon event stream ends.
 
 The sensor does not observe direct kernel credential writes, all task creation
 without exec, or establish container escape from UID0. In-place credential
@@ -289,10 +289,125 @@ make build
 ./build/sentinel --socket /run/xe-antishell/sentineld.sock capabilities
 ./build/sentinel --socket /run/xe-antishell/sentineld.sock events --limit 20
 ./build/sentinel --socket /run/xe-antishell/sentineld.sock findings --limit 20
+./build/sentinel rules
+./build/sentinel observations --limit 20
+./build/sentinel capacity
 ./build/sentinel resources
 ./build/sentinel managed status
 ./build/sentinel --socket /run/xe-antishell/sentineld.sock process-tree --pid 1234
 ```
+
+### Reviewing a host before widening collection
+
+`sentinel rules` and the panel's system view show each built-in rule, its version,
+the local or managed policy in effect, and the selected sensor's latest receipt.
+Use `--json` before the subcommand for the required evidence fields. Finding
+history accepts the same Korean titles shown in the panel.
+
+Compare two **standalone agent YAML configurations** against a normalized JSONL
+sample from one host and boot. Each non-blank row requires an event timestamp.
+The command uses private in-memory databases and requires no running daemon.
+
+```bash
+./build/sentinel rules compare --current configs/sentineld.yaml \
+  --candidate configs/examples/agent-webshell-detection.yaml \
+  --events testdata/events/web-shell.jsonl
+```
+
+The result shows matching input types, findings added or removed, changes to
+existing findings, and affected services. Input type presence alone cannot
+establish that a sample includes all the evidence a rule needs. The comparison
+accepts up to 5,000 observations and 16 MiB. Managed policy approval and live
+sensor readiness are checked on the enrolled host.
+
+Review retained file writes and TCP attempts in the panel's event history or
+with a service-scoped query. For example, inspect writes to an application tree
+and exclude its normal upload directory from review candidates.
+
+```bash
+./build/sentinel observations --service example-web.service \
+  --protected-dir /srv/app --allowed-dir /srv/app/uploads --limit 50
+```
+
+Classification uses the service stored on the event and the observed absolute
+path. Only a positive byte count under the protected directory is a candidate.
+The path settings apply to this query. TCP results distinguish initiation,
+failure and an unknown return. The sample view produces no findings or response
+actions.
+
+### Service-scoped file and TCP alerts
+
+The following host YAML fragment enables detection-only findings for one
+application. Merge the service name into the existing web-services list. On a
+managed agent also include the exact name in the active signed policy's
+`detection.web_services`. The service name is case-sensitive for these rules.
+The path and destination settings are read from the agent's local YAML on startup.
+
+```yaml
+detection:
+  enabled: true
+  web_services: [example-web.service]
+service_observations:
+  - service: example-web.service
+    protected_dirs: [/srv/app]
+    allowed_write_dirs: [/srv/app/uploads, /srv/app/cache]
+    allowed_tcp_destinations:
+      - cidr: 192.0.2.0/24
+        ports: [443]
+      - cidr: 2001:db8:10::/64
+        ports: [443]
+```
+
+Replace the example networks with the application's actual dependencies, including
+local proxies or loopback backends when applicable. Each CIDR and its ports form a
+single allow entry. Omitting ports allows all ports in that CIDR. An empty list
+leaves that rule off. IPv4-mapped IPv6 destinations use the IPv4 policy.
+`service-protected-file-write` requires positive bytes under a protected path.
+`service-unexpected-tcp-destination` requires an observed TCP initiation to an
+address and port outside the service's list. A failed or unknown operation stays
+available in observation samples. Both findings link to the original event and
+are detection-only even in enforce mode.
+
+Run the example offline against six typed observations. It adds one file finding
+and one TCP finding.
+
+```bash
+./build/sentinel rules compare --current configs/sentineld.yaml \
+  --candidate configs/examples/agent-service-observations.yaml \
+  --events testdata/events/service-observations.jsonl
+```
+
+Verify each sensor's receipt independently with `sentinel rules`. The optional
+Tetragon policies must cover the worker executable and file prefix. See the
+[optional sensor setup](#optional-inline-file-write-and-tcp-initiation-policies)
+and the [detection design](devdocs/plans/service-observation-rules.md).
+
+Use `sentinel capacity` or the system view to compare today's and yesterday's
+UTC event counts and stored JSON bytes. The first day begins at the schema
+upgrade. DB, WAL and free disk bytes are separate measurements. Queue depth,
+observed high-water mark, drops by cause and submission-to-commit latency
+cover the current daemon run. Expired events still referenced by findings are
+excluded from the retention backlog. A capped scan shows a lower bound.
+
+Enrolled agents include pending payload bytes and records, the spool limit,
+and cumulative delivery losses. A failed send or an ACK with no progress on
+an outstanding batch starts a measured interruption. The first advancing ACK
+and the ACK that empties the queue close separate timers. Check the interval
+loss count along with the drain duration. The latest interruption survives an
+agent restart. These metrics reach central through the existing heartbeat
+under `status.capability_report.capabilities["storage.capacity"].details`.
+
+RPM builds default to `limits.observation_history_minutes: 60`, including
+preserved site configurations that omit the field.
+The agent evaluates the complete normalized observation before keeping and
+sending a smaller record. It omits raw JSON, command arguments, working
+directories and repeated ancestor snapshots. Structured detection evidence,
+process identities, finding summaries and scores remain available. Periodic
+expiry protects finding evidence and events pending delivery. SQLite reuses
+freed pages. An explicit duration overrides the default. An explicit zero
+uses the configured `retention_days` and complete observation storage.
+Source builds use zero when the field is omitted. The effective duration
+and compact-storage status are reported in capacity details.
 
 ## Local web panel
 
@@ -436,6 +551,13 @@ recovery. The check does not certify every sensor or detection rule. See the
 [agent update design](devdocs/plans/managed-agent-updates.md) for trust, journal,
 retry and validation boundaries.
 
+Fresh installations on SELinux-enforcing hosts should use the verified RPM 33
+or a later release with the corrected updater unit. For existing hosts where
+SELinux refused the RPM scriptlet transition, use the existing administrator
+or configuration-management channel to apply the verified RPM 33 once.
+`scripts/bootstrap-rpm-updater.sh` checks the target, package digest and
+updater unit before installation. See the [bootstrap procedure](devdocs/plans/managed-agent-updates.md#selinux-rpm-scriptlet-transition).
+
 ### Migrating an earlier bundled installation
 
 Packages through `0.1.0-15` owned the central binary and service too. When such
@@ -534,6 +656,16 @@ bounded 50,000-record graph. `collector.tetragon.include_executables` and
 This preserves service ancestry without persisting every process on a busy
 host. Tetragon's flattened argument text is omitted rather than reconstructed;
 candidate events therefore explicitly lack exact argv evidence.
+
+If the selected Tetragon command exits or reaches EOF, the agent resubscribes
+with the same command and filters. Retries start after one second and double
+up to 30 seconds. `sentinel status` and the local panel show the latest
+interruption, its recovery time and the number of reconnect attempts since
+daemon startup. The gap stays open until the new subscription commits a new
+retained event to SQLite. A quiet or narrowly filtered host can therefore
+show recovery pending while its new stream is running. Events missed during
+the outage may be unavailable. Each sensor needs fresh evidence from the new
+subscription, and source parse-error counts remain cumulative.
 
 `ACTIVE` in the panel means the agent has received actual selected-source
 execution evidence. Passive kernel support remains a separate indication.

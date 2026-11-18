@@ -6,6 +6,14 @@ function operationalCount(value) {
 }
 function operationalQuantity(value) {return Number.isFinite(value) && value >= 0 ? `${operationalCount(value)}건` : "미확인";}
 
+function collectionGapText(status) {
+  const details = status.capability_report?.capabilities?.["collector.tetragon"]?.details;
+  if (status.collector !== "tetragon-json" || !details?.last_disconnect_at) return "";
+  const end = details.last_recovered_at ? `${fmtTime(details.last_recovered_at)} 복구` : "복구 대기 중";
+  const gap = `최근 수집 공백 · ${fmtTime(details.last_disconnect_at)} 중단 · ${end}`;
+  return /^\d+$/.test(details.reconnect_attempts) ? `${gap} · 누적 재연결 시도 ${details.reconnect_attempts}회` : gap;
+}
+
 function effectiveResponse(summary) {
   const result=effectiveWebResponse(summary);
   if(summary?.detection_enabled&&summary?.privilege_rules)result.note+=` ${privilegeProfileNote(summary)}`;
@@ -33,6 +41,9 @@ function renderOperatorOverview(data) {
   text("responseValue", response.label);text("responseNote", response.note);
   text("lastEventValue", relative(data.events?.[0]?.event_time || status.last_event_at));
   text("collectorValue", summary ? `${operationalQuantity(summary.total_events)} 보존` : "보존 이력 집계 미확인");
+  const gap = collectionGapText(status);
+  text("collectorGap", gap);
+  byId("collectorGap").hidden = !gap;
   text("lossValue", operationalCount(status.dropped));
   const parseErrors = (status.parse_errors || 0) + (status.collector_health?.parse_errors || 0);
   text("parseValue", operationalQuantity(parseErrors));

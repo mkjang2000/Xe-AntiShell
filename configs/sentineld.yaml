@@ -38,6 +38,7 @@ limits:
   query_default: 100
   query_maximum: 1000
   retention_days: 7
+  observation_history_minutes: 60
 
 privacy:
   store_raw_events: false
@@ -77,6 +78,10 @@ detection:
     - ksh
     - ash
   allowed_pairs: []
+
+# Host-local scopes for detection-only file and TCP alerts. Each service must
+# also be explicitly named by the active policy in detection.web_services.
+service_observations: []
 
 response:
   allow_terminate: false

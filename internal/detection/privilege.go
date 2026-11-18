@@ -36,12 +36,29 @@ func validRootExecution(event model.Event) bool {
 // advisory scope marker does not hide a complete credential pair whose namespace
 // is explicitly unknown; it never makes an unknown namespace into host proof.
 func privilegeFieldAvailable(event model.Event, field string) bool {
+	if field == "credential" && unresolvedCredentialNamespaceScope(event.Credential) {
+		return evidenceFieldAvailableExcept(event, field, "credential.user_namespace_scope")
+	}
+	return evidenceFieldAvailable(event, field)
+}
+
+func evidenceFieldAvailable(event model.Event, field string) bool {
+	return evidenceFieldAvailableExcept(event, field, "")
+}
+
+// A marker names either the required field, an enclosing object, or one
+// of its children. Sibling names with the same textual prefix are unrelated.
+func evidenceFieldAvailableExcept(event model.Event, field, ignoreMissing string) bool {
 	for group, fields := range [][]string{event.MissingFields, event.TruncatedFields, event.RedactedFields} {
 		for _, missing := range fields {
-			if group == 0 && field == "credential" && missing == "credential.user_namespace_scope" && unresolvedCredentialNamespaceScope(event.Credential) {
+			if group == 0 && ignoreMissing != "" && missing == ignoreMissing {
 				continue
 			}
-			if missing == field || strings.HasPrefix(field, missing+".") || strings.HasPrefix(field, missing+"[") || strings.HasPrefix(missing, field+".") || strings.HasPrefix(missing, field+"[") {
+			short, long := field, missing
+			if len(missing) < len(field) {
+				short, long = missing, field
+			}
+			if strings.HasPrefix(long, short) && (len(short) == len(long) || long[len(short)] == '.' || long[len(short)] == '[') {
 				return false
 			}
 		}
@@ -105,7 +122,7 @@ func (e *Engine) evaluateRootExecution(event model.Event, lineage AncestorProvid
 	if web {
 		origin = webOrigin
 	}
-	return privilegeFinding(event, "privilege-root-execution", summary, factors, origin, executionConfidence(event))
+	return privilegeFinding(event, rulePrivilegeRootExecution, summary, factors, origin, executionConfidence(event))
 }
 
 // Parent credentials are source snapshots, not proof that the parent currently

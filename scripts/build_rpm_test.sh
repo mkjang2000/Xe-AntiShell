@@ -42,7 +42,12 @@ for test_path in go.mod go.sum Makefile install.sh README.md Project_tree.md \
   mkdir -p -- "$XEAS_BUILD_ROOT/$(dirname -- "$test_path")"
   printf 'maintained fixture\n' > "$XEAS_BUILD_ROOT/$test_path"
 done
-printf 'Name: xe-antishell\nVersion: 0.1.0\n' > "$XEAS_BUILD_ROOT/packaging/rpm/xe-antishell.spec"
+# Archive the real RPM definition and units so the fixture guards the shipped
+# service configuration as well as the source allowlist.
+cp -- "$test_source_root/packaging/rpm/xe-antishell.spec" "$XEAS_BUILD_ROOT/packaging/rpm/"
+for unit in sentineld sentinel-web sentinel-updater; do
+  cp -- "$test_source_root/packaging/systemd/$unit.service" "$XEAS_BUILD_ROOT/packaging/systemd/"
+done
 printf 'internal/private.go\nscripts/private_notes.py\n' > "$XEAS_BUILD_ROOT/.gitignore"
 for test_path in .aws/credentials .codex/session.json .git/config .env \
   internal/private.go internal/site.json internal/signing.key internal/private.pem \
@@ -148,7 +153,10 @@ artifact="$output/xe-antishell-0.1.0-1.x86_64.rpm"
 [[ $(stat -c '%a' "$artifact") == 644 ]]
 [[ $(< "$XEAS_MOCK_CALLS") == $'source-guard\nrpmbuild' ]]
 python3 - "$XEAS_MOCK_CAPTURE" <<'PY'
-import sys,tarfile
+import configparser
+import sys
+import tarfile
+
 with tarfile.open(sys.argv[1], 'r:gz') as archive:
     names = set(archive.getnames())
     root = 'xe-antishell-0.1.0/'
@@ -159,7 +167,30 @@ with tarfile.open(sys.argv[1], 'r:gz') as archive:
     assert root+'packaging/install-wizard.sh' in names
     assert root+'packaging/install_wizard_test.py' in names
     assert root+'devdocs/analysis/release-signing.ko.md' in names
-    assert root+'packaging/systemd/sentinel-updater.service' in names
+    spec = archive.extractfile(root + 'packaging/rpm/xe-antishell.spec').read().decode()
+    install_section = spec.split('\n%install\n', 1)[1].split('\n%files\n', 1)[0]
+    unit_settings = {
+        'sentinel-updater': {
+            'Type': 'oneshot',
+            'User': 'root',
+            'Group': 'root',
+            'ExecStart': '/usr/sbin/sentinel-updater',
+            'UMask': '0077',
+            'NoNewPrivileges': 'false',
+            'PrivateTmp': 'true',
+            'ProtectHome': 'true',
+        },
+        'sentineld': {'NoNewPrivileges': 'true', 'ProtectSystem': 'strict'},
+        'sentinel-web': {'NoNewPrivileges': 'true', 'ProtectSystem': 'strict'},
+    }
+    for name, expected in unit_settings.items():
+        unit_path = f'packaging/systemd/{name}.service'
+        install = f'install -D -m 0644 {unit_path} %{{buildroot}}%{{_unitdir}}/{name}.service'
+        assert install in install_section.splitlines(), unit_path
+        unit = configparser.ConfigParser(interpolation=None)
+        unit.read_string(archive.extractfile(root + unit_path).read().decode())
+        for key, value in expected.items():
+            assert unit['Service'].get(key) == value, (name, key, unit['Service'].get(key))
     for expected in ['packaging/install-tetragon.sh','packaging/install_tetragon_test.sh','packaging/tetragon/setup.py','packaging/tetragon/setup_config.py','packaging/tetragon/test_setup.py']:
         assert root+expected in names, expected
     for member in archive.getmembers():

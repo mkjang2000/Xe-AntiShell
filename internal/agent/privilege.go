@@ -11,9 +11,8 @@ import (
 
 const privilegeEngineCapability = "detection.privilege_rules"
 
-func (s *Service) privilegeEnabled() bool {
-	state := s.detectionState.Load()
-	return state != nil && state.enabled && state.engine.PrivilegeEnabled()
+func (state *detectionState) privilegeEnabled() bool {
+	return state != nil && state.enabled && state.engine != nil && state.engine.PrivilegeEnabled()
 }
 
 func (s *Service) privilegeLoop(ctx context.Context) {
@@ -22,7 +21,7 @@ func (s *Service) privilegeLoop(ctx context.Context) {
 		return
 	}
 	for {
-		enabled := s.privilegeEnabled() && s.currentCollectorName() == "tetragon-json"
+		enabled := s.detectionState.Load().privilegeEnabled() && s.currentCollectorName() == "tetragon-json"
 		s.privilegeController.Reconcile(ctx, enabled)
 		if !managedWait(ctx, 15*time.Second) {
 			return
@@ -32,7 +31,7 @@ func (s *Service) privilegeLoop(ctx context.Context) {
 
 // Static support authorizes a new policy; only live paired receipts establish
 // active credential monitoring. The first cannot depend on the second.
-func (s *Service) applyPrivilegeCapabilities(status *model.AgentStatus, report *model.CapabilityReport, evidence sourceRuntimeEvidence) {
+func (s *Service) applyPrivilegeCapabilities(status *model.AgentStatus, report *model.CapabilityReport, evidence sourceRuntimeEvidence, profileEnabled bool) {
 	engine := model.Capability{Name: privilegeEngineCapability, Provider: "local-detector", Implementation: "implemented", State: model.CapabilityLimited, RuntimeState: "inactive", Reason: "전역 root 실행·권한 변경 탐지 엔진", RuntimeReason: "호환되는 Tetragon 수집기와 설치된 정책 컨트롤러가 필요합니다.", Details: map[string]string{"contract": "1", "response": "detection_only"}}
 	supported := s.privilegeController != nil && s.privilegeController.Snapshot().Supported && status.Collector == "tetragon-json" && privilegeArgumentsUsable(s.config.Collector.Tetragon.Args)
 	if !privilegeArgumentsUsable(s.config.Collector.Tetragon.Args) {
@@ -43,7 +42,7 @@ func (s *Service) applyPrivilegeCapabilities(status *model.AgentStatus, report *
 		engine.State = model.CapabilitySupported
 		engine.RuntimeState = "available"
 		engine.RuntimeReason = "중앙 정책으로 활성화할 수 있습니다. 실제 권한 변경 수신 여부는 별도로 확인합니다."
-		if s.privilegeEnabled() {
+		if profileEnabled {
 			engine.RuntimeState = "active"
 			engine.RuntimeReason = "권한 탐지 프로필이 활성화됐습니다. 새 규칙은 탐지 전용입니다."
 		}
@@ -54,7 +53,7 @@ func (s *Service) applyPrivilegeCapabilities(status *model.AgentStatus, report *
 		value = model.Capability{Name: capability.CredentialCapability, State: model.CapabilityLimited, Provider: "tetragon", Implementation: "implemented"}
 	}
 	value.Implementation = "implemented"
-	if !s.privilegeEnabled() {
+	if !profileEnabled {
 		value.RuntimeState = "inactive"
 		value.RuntimeReason = "권한 변경 관측이 정책에서 꺼져 있습니다."
 		value.VerifiedAt = nil

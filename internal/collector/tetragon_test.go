@@ -346,17 +346,47 @@ func TestTetragonJSONDrainsLargeStderr(t *testing.T) {
 func TestTetragonJSONSkipsOneMalformedRecord(t *testing.T) {
 	value := NewTetragonJSON(CommandSpec{Path: "/unused"}, Metadata{BootID: "boot"})
 	input := bytes.NewBufferString("{malformed}\n" +
+		`{"process_kprobe":{}}` + "\n" +
 		`{"time":"2026-01-02T03:04:05Z","process_exec":{"process":{"exec_id":"id:2","pid":2,"uid":1000,"binary":"/usr/bin/id"}}}` + "\n")
 	var events []model.Event
 	err := value.consume(context.Background(), input, SinkFunc(func(_ context.Context, event model.Event) error {
+		if value.Health().LastError == "" {
+			t.Fatal("skipped frame cleared the parse error before valid delivery")
+		}
 		events = append(events, event)
 		return nil
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 || value.Health().ParseErrors != 1 {
-		t.Fatalf("malformed record handling: events=%d health=%+v", len(events), value.Health())
+	health := value.Health()
+	if len(events) != 1 || health.EventsReceived != 3 || health.EventsDropped != 1 || health.ParseErrors != 1 || health.LastError != "" {
+		t.Fatalf("malformed record handling: events=%d health=%+v", len(events), health)
+	}
+}
+
+func TestTetragonJSONReusedAfterConsecutiveParseErrors(t *testing.T) {
+	value := NewTetragonJSON(CommandSpec{
+		Path: os.Args[0],
+		Args: []string{"-test.run=TestTetragonCommandHelper", "--", "literal;not-a-shell-command"},
+		Env:  []string{"XE_ANTISHELL_TETRAGON_HELPER=1"},
+	}, Metadata{BootID: "boot"})
+	ctx := context.Background()
+	sink := SinkFunc(func(context.Context, model.Event) error { return nil })
+	corrupt := strings.NewReader(strings.Repeat("{malformed}\n", maxTetragonConsecutiveParseErrors+1))
+	if err := value.consume(ctx, corrupt, sink); err == nil {
+		t.Fatal("consecutive malformed input did not terminate the stream")
+	}
+	failed := value.Health()
+	if failed.LastError == "" || failed.ParseErrors != maxTetragonConsecutiveParseErrors || failed.EventsEmitted != 0 {
+		t.Fatalf("unreported stream failure: %+v", failed)
+	}
+	if err := value.Run(ctx, sink); err != nil {
+		t.Fatal(err)
+	}
+	recovered := value.Health()
+	if recovered.LastError != "" || recovered.ParseErrors != failed.ParseErrors || recovered.EventsReceived != failed.EventsReceived+1 || recovered.EventsEmitted != 1 {
+		t.Fatalf("unexpected health after resubscription: %+v", recovered)
 	}
 }
 

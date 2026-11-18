@@ -64,15 +64,19 @@ type Service struct {
 	updateManager       *updates.Manager
 	privilegeController *privileges.Controller
 
-	eventQueue chan model.Event
-	sequence   atomic.Uint64
-	dropped    atomic.Uint64
-	parseErrs  atomic.Uint64
+	eventQueue chan queuedEvent
+	// Only the queue processor updates this after the old subscription drains.
+	processedGeneration uint64
+	sequence            atomic.Uint64
+	dropped             atomic.Uint64
+	parseErrs           atomic.Uint64
+	capacity            queueMetrics
 
 	statusMu        sync.RWMutex
 	status          model.AgentStatus
 	report          model.CapabilityReport
 	runtimeEvidence map[string]sourceRuntimeEvidence
+	recovery        collectorRecovery
 	operationErrors map[string]string
 
 	collectorMu sync.Mutex
@@ -127,6 +131,7 @@ func NewWithProcessSource(cfg config.Config, store *storage.Store, prober Capabi
 		lineage:       lineage.New(),
 		metrics:       hostmetrics.New("/proc", "/sys"),
 		detector: detection.NewWithOptions(detection.Options{
+			ServiceObservations:  cfg.ServiceObservations,
 			WebExecutables:       cfg.Detection.WebExecutables,
 			WebServices:          cfg.Detection.WebServices,
 			Shells:               cfg.Detection.Shells,
@@ -135,7 +140,7 @@ func NewWithProcessSource(cfg config.Config, store *storage.Store, prober Capabi
 			PrivilegeRules:       cfg.Detection.PrivilegeRules,
 			RootExecAlerts:       cfg.Detection.RootExecAlerts,
 		}),
-		eventQueue:    make(chan model.Event, cfg.Limits.QueueSize),
+		eventQueue:    make(chan queuedEvent, cfg.Limits.QueueSize),
 		shutdownDone:  make(chan struct{}),
 		processorStop: make(chan struct{}),
 		status: model.AgentStatus{
@@ -347,19 +352,11 @@ func (s *Service) hostID() string {
 	return s.report.Platform.Hostname
 }
 
-func (s *Service) runCollector(ctx context.Context, value collector.Collector) {
-	defer s.producerWG.Done()
-	s.markCollectorRunning(value.Name())
-	if err := value.Run(ctx, s); err != nil && !errors.Is(err, context.Canceled) && ctx.Err() == nil {
-		s.setRuntimeState(model.AgentModeDegraded, model.HealthError, value.Name(), err)
-		return
-	}
-	if ctx.Err() == nil {
-		s.setRuntimeState(model.AgentModeDegraded, model.HealthDegraded, value.Name(), errors.New("collector stream ended"))
-	}
+func (s *Service) Submit(ctx context.Context, event model.Event) error {
+	return s.submit(ctx, event, 0)
 }
 
-func (s *Service) Submit(ctx context.Context, event model.Event) error {
+func (s *Service) submit(ctx context.Context, event model.Event, generation uint64) error {
 	s.submitMu.Lock()
 	if !s.accepting {
 		s.submitMu.Unlock()
@@ -384,27 +381,29 @@ func (s *Service) Submit(ctx context.Context, event model.Event) error {
 	}
 	encoded, err := json.Marshal(event)
 	if err != nil {
-		s.dropped.Add(1)
+		s.drop(dropEncode, 1)
 		s.parseErrs.Add(1)
 		s.updateCounters()
 		return nil
 	}
 	if len(encoded) > s.config.Limits.MaxEventBytes {
-		s.dropped.Add(1)
+		s.drop(dropOversize, 1)
 		s.parseErrs.Add(1)
 		s.updateCounters()
 		return nil
 	}
 
+	observeMax(&s.capacity.highWater, uint64(len(s.eventQueue)))
 	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
 	select {
-	case s.eventQueue <- event:
+	case s.eventQueue <- queuedEvent{Event: event, generation: generation, submittedAt: time.Now()}:
+		observeMax(&s.capacity.highWater, uint64(len(s.eventQueue)))
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
-		s.dropped.Add(1)
+		s.drop(dropQueueTimeout, 1)
 		s.updateCounters()
 		return nil
 	}
@@ -458,8 +457,9 @@ func (s *Service) capabilityValue(name string) model.Capability {
 	return s.report.Capabilities[name]
 }
 
-func (s *Service) Status(_ context.Context) (model.AgentStatus, error) {
+func (s *Service) Status(ctx context.Context) (model.AgentStatus, error) {
 	status, _ := s.runtimeSnapshot()
+	s.addCapacity(ctx, status.CapabilityReport)
 	return status, nil
 }
 
@@ -556,7 +556,7 @@ func (s *Service) flushAuditLoop(ctx context.Context) {
 			flushCtx, cancel := context.WithTimeout(context.Background(), auditShutdownFlushTimeout)
 			for index, event := range events {
 				if err := s.Submit(flushCtx, event); err != nil {
-					s.dropped.Add(uint64(len(events) - index))
+					s.drop(dropShutdown, uint64(len(events)-index))
 					s.updateCounters()
 					break
 				}
@@ -595,14 +595,14 @@ func (s *Service) Shutdown(ctx context.Context) error {
 }
 
 func (s *Service) finishShutdown() {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	s.collectorMu.Lock()
 	if s.collector != nil {
 		_ = s.collector.Close()
 	}
 	s.collectorMu.Unlock()
-	if s.cancel != nil {
-		s.cancel()
-	}
 
 	// Producers may flush final audit groups into the queue. Keep Submit open
 	// until every producer has exited, then wait for in-flight submitters.

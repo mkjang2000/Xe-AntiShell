@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+	"xe-antishell/internal/buildinfo"
 	"xe-antishell/internal/privileges"
 )
 
@@ -26,14 +27,15 @@ const (
 )
 
 type Config struct {
-	Version   int             `json:"version" yaml:"version"`
-	Agent     AgentConfig     `json:"agent" yaml:"agent"`
-	Collector CollectorConfig `json:"collector" yaml:"collector"`
-	Limits    LimitsConfig    `json:"limits" yaml:"limits"`
-	Privacy   PrivacyConfig   `json:"privacy" yaml:"privacy"`
-	Detection DetectionConfig `json:"detection" yaml:"detection"`
-	Response  ResponseConfig  `json:"response" yaml:"response"`
-	Updates   UpdatesConfig   `json:"updates" yaml:"updates"`
+	Version             int                        `json:"version" yaml:"version"`
+	Agent               AgentConfig                `json:"agent" yaml:"agent"`
+	Collector           CollectorConfig            `json:"collector" yaml:"collector"`
+	Limits              LimitsConfig               `json:"limits" yaml:"limits"`
+	Privacy             PrivacyConfig              `json:"privacy" yaml:"privacy"`
+	Detection           DetectionConfig            `json:"detection" yaml:"detection"`
+	Response            ResponseConfig             `json:"response" yaml:"response"`
+	ServiceObservations []ServiceObservationPolicy `json:"service_observations,omitempty" yaml:"service_observations,omitempty"`
+	Updates             UpdatesConfig              `json:"updates" yaml:"updates"`
 }
 
 // Updates are considered only for an enrolled, packaged root systemd agent.
@@ -79,14 +81,15 @@ type ReplayConfig struct {
 }
 
 type LimitsConfig struct {
-	MaxEventBytes int `json:"max_event_bytes" yaml:"max_event_bytes"`
-	MaxRawJSON    int `json:"max_raw_json_bytes" yaml:"max_raw_json_bytes"`
-	MaxArgv       int `json:"max_argv" yaml:"max_argv"`
-	MaxArgument   int `json:"max_argument_bytes" yaml:"max_argument_bytes"`
-	QueueSize     int `json:"queue_size" yaml:"queue_size"`
-	QueryDefault  int `json:"query_default" yaml:"query_default"`
-	QueryMaximum  int `json:"query_maximum" yaml:"query_maximum"`
-	RetentionDays int `json:"retention_days" yaml:"retention_days"`
+	MaxEventBytes             int `json:"max_event_bytes" yaml:"max_event_bytes"`
+	MaxRawJSON                int `json:"max_raw_json_bytes" yaml:"max_raw_json_bytes"`
+	MaxArgv                   int `json:"max_argv" yaml:"max_argv"`
+	MaxArgument               int `json:"max_argument_bytes" yaml:"max_argument_bytes"`
+	QueueSize                 int `json:"queue_size" yaml:"queue_size"`
+	QueryDefault              int `json:"query_default" yaml:"query_default"`
+	QueryMaximum              int `json:"query_maximum" yaml:"query_maximum"`
+	RetentionDays             int `json:"retention_days" yaml:"retention_days"`
+	ObservationHistoryMinutes int `json:"observation_history_minutes,omitempty" yaml:"observation_history_minutes,omitempty"`
 }
 
 type PrivacyConfig struct {
@@ -107,6 +110,13 @@ type DetectionConfig struct {
 }
 
 func Default() Config {
+	// RPM keeps existing site configuration on upgrade. Apply the packaged
+	// policy before YAML decoding so an explicit duration, including zero,
+	// still takes precedence.
+	observationHistoryMinutes := 0
+	if buildinfo.PackageRelease != "" && buildinfo.PackageArch != "" {
+		observationHistoryMinutes = 60
+	}
 	return Config{
 		Version: CurrentVersion,
 		Updates: UpdatesConfig{Enabled: true},
@@ -122,14 +132,15 @@ func Default() Config {
 			},
 		},
 		Limits: LimitsConfig{
-			MaxEventBytes: 256 << 10,
-			MaxRawJSON:    128 << 10,
-			MaxArgv:       128,
-			MaxArgument:   4096,
-			QueueSize:     256,
-			QueryDefault:  100,
-			QueryMaximum:  1000,
-			RetentionDays: 7,
+			MaxEventBytes:             256 << 10,
+			MaxRawJSON:                128 << 10,
+			MaxArgv:                   128,
+			MaxArgument:               4096,
+			QueueSize:                 256,
+			QueryDefault:              100,
+			QueryMaximum:              1000,
+			RetentionDays:             7,
+			ObservationHistoryMinutes: observationHistoryMinutes,
 		},
 		Privacy: PrivacyConfig{
 			StoreRawEvents: false,
@@ -186,6 +197,9 @@ func Decode(r io.Reader) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if err := validateServiceObservations(c.ServiceObservations); err != nil {
+		return err
+	}
 	if c.Detection.RootExecAlerts != "" && (!c.Detection.PrivilegeRules || (c.Detection.RootExecAlerts != "suspicious" && c.Detection.RootExecAlerts != "all")) {
 		return errors.New("invalid detection.root_exec_alerts")
 	}
@@ -280,6 +294,9 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.QueryDefault < 1 || c.Limits.QueryMaximum < c.Limits.QueryDefault || c.Limits.QueryMaximum > 100_000 {
 		return errors.New("query limits require 1 <= query_default <= query_maximum <= 100000")
+	}
+	if c.Limits.ObservationHistoryMinutes < 0 || c.Limits.ObservationHistoryMinutes > 1440 {
+		return errors.New("limits.observation_history_minutes must be between 0 and 1440")
 	}
 	if c.Limits.RetentionDays < 1 || c.Limits.RetentionDays > 3650 {
 		return errors.New("limits.retention_days must be between 1 and 3650")

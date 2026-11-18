@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"xe-antishell/internal/detection"
 	"xe-antishell/internal/model"
 )
 
@@ -292,5 +293,28 @@ func TestHistoryRejectsInvalidBoundsAndCursorFilterChanges(t *testing.T) {
 	next, err := store.History(context.Background(), initial)
 	if err != nil || len(historyIDs(t, "findings", next)) != 3 {
 		t.Fatalf("page size change rejected: %#v error=%v", next, err)
+	}
+}
+
+func TestHistoryMatchesEveryCatalogTitleIncludingHistoricalVersions(t *testing.T) {
+	store, _ := openTestStore(t)
+	ctx := context.Background()
+	rules := detection.RuleDefinitions()
+	for i, rule := range rules {
+		event := testEvent(fmt.Sprintf("catalog-%d", i), uint64(i+1), time.Unix(1700000000, 0))
+		f := managedTestFinding(event)
+		f.RuleID, f.RuleVersion, f.Summary = rule.ID, "old-version", "no display text persisted"
+		if err := store.PersistObservation(ctx, event, []model.Finding{f}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, rule := range rules {
+		page, err := store.History(ctx, model.HistoryQuery{Kind: "findings", Search: strings.ToUpper(rule.Title)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := historyIDs(t, "findings", page); !reflect.DeepEqual(got, []string{fmt.Sprintf("finding-catalog-%d", i)}) || page.Total != 1 {
+			t.Errorf("%s title returned %v total %d", rule.ID, got, page.Total)
+		}
 	}
 }

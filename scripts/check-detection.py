@@ -194,11 +194,19 @@ def run(bin_dir):
         socket = work / "sock"
         require(len(os.fsencode(socket)) < 104, "temporary Unix socket path is too long")
         replay = write_replay(cases, work)
+        # This replay verifies the full legacy encoding, including argv.
+        config = work / "replay.yaml"
+        source = CONFIG.read_text(encoding="utf-8")
+        require("\nlimits:\n" in source, "replay configuration has no limits section")
+        config.write_text(
+            source.replace("\nlimits:\n", "\nlimits:\n  observation_history_minutes: 0\n", 1),
+            encoding="utf-8",
+        )
         daemon = None
         with (work / "daemon.log").open("wb") as log:
             try:
                 daemon = subprocess.Popen(
-                    [str(server), "--config", str(CONFIG), "--data-dir", str(work),
+                    [str(server), "--config", str(config), "--data-dir", str(work),
                      "--socket", str(socket), "--replay", str(replay)],
                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True,
                 )

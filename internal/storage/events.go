@@ -37,14 +37,14 @@ func (s *Store) SaveEvent(ctx context.Context, event model.Event) error {
 // stable source event returns inserted=false; reuse of an ID for different
 // source content returns ErrConflict.
 func (s *Store) SaveEventResult(ctx context.Context, event model.Event) (bool, error) {
-	inserted, _, err := s.saveEventResult(ctx, event)
+	inserted, _, err := s.saveEventResult(ctx, event, false)
 	return inserted, err
 }
 
 // saveEventResult returns the freshly encoded event for use by this observation's
 // outbox bundle. Every call validates and encodes current values; no caller-owned
 // object or encoded evidence is cached between calls.
-func (s *Store) saveEventResult(ctx context.Context, event model.Event) (bool, json.RawMessage, error) {
+func (s *Store) saveEventResult(ctx context.Context, event model.Event, compact bool) (bool, json.RawMessage, error) {
 	if event.ID == "" {
 		return false, nil, errors.New("storage: event ID is required")
 	}
@@ -61,7 +61,17 @@ func (s *Store) saveEventResult(ctx context.Context, event model.Event) (bool, j
 		return false, nil, errors.New("storage: event sequence exceeds SQLite integer range")
 	}
 
-	body, err := json.Marshal(event)
+	stored := event
+	var digest []byte
+	if compact {
+		var err error
+		digest, err = observationDigest(event)
+		if err != nil {
+			return false, nil, err
+		}
+		stored = compactObservation(event)
+	}
+	body, err := json.Marshal(stored)
 	if err != nil {
 		return false, nil, fmt.Errorf("storage: encode event %q: %w", event.ID, err)
 	}
@@ -69,13 +79,13 @@ func (s *Store) saveEventResult(ctx context.Context, event model.Event) (bool, j
 INSERT INTO events(
     event_id, schema_version, host_id, boot_id, stream_id, sequence,
     event_time_ns, ingest_time_ns, event_type, source, source_event_id,
-    completeness, process_key, event_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    completeness, process_key, event_json, evidence_digest
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(event_id) DO NOTHING`,
 		event.ID, event.SchemaVersion, event.HostID, event.BootID, event.StreamID,
 		int64(event.Sequence), event.EventTime.UnixNano(), event.IngestTime.UnixNano(),
 		event.Type, event.Source, event.SourceEventID, string(event.Completeness),
-		event.Process.Key, body,
+		event.Process.Key, body, digest,
 	)
 	if err != nil {
 		return false, nil, fmt.Errorf("storage: insert event %q: %w", event.ID, err)
@@ -91,16 +101,36 @@ ON CONFLICT(event_id) DO NOTHING`,
 		return true, body, nil
 	}
 
-	var existing []byte
-	if err := s.executor().QueryRowContext(ctx, `SELECT event_json FROM events WHERE event_id = ?`, event.ID).Scan(&existing); err != nil {
+	var existing, existingDigest []byte
+	if err := s.executor().QueryRowContext(ctx, `SELECT event_json, evidence_digest FROM events WHERE event_id = ?`, event.ID).Scan(&existing, &existingDigest); err != nil {
 		return false, nil, fmt.Errorf("storage: read duplicate event %q: %w", event.ID, err)
 	}
-	if bytes.Equal(existing, body) {
-		return false, body, nil
-	}
-	existingEvent, decodeErr := decodeEvent(existing)
-	if decodeErr == nil && sameSourceEvent(existingEvent, event) {
-		return false, body, nil
+	if len(existingDigest) != 0 {
+		if digest == nil {
+			var err error
+			digest, err = observationDigest(event)
+			if err != nil {
+				return false, nil, err
+			}
+		}
+		if bytes.Equal(existingDigest, digest) {
+			return false, existing, nil
+		}
+	} else {
+		if compact {
+			var err error
+			body, err = json.Marshal(event)
+			if err != nil {
+				return false, nil, err
+			}
+		}
+		if bytes.Equal(existing, body) {
+			return false, existing, nil
+		}
+		existingEvent, decodeErr := decodeEvent(existing)
+		if decodeErr == nil && sameSourceEvent(existingEvent, event) {
+			return false, existing, nil
+		}
 	}
 	return false, nil, fmt.Errorf("%w: event ID %q", ErrConflict, event.ID)
 }
@@ -109,35 +139,28 @@ func sameSourceEvent(left, right model.Event) bool {
 	if left.SourceEventID == "" || left.SourceEventID != right.SourceEventID {
 		return false
 	}
-	left.Sequence, right.Sequence = 0, 0
-	left.IngestTime, right.IngestTime = time.Time{}, time.Time{}
-	left.Process.FirstSeen, right.Process.FirstSeen = time.Time{}, time.Time{}
-	left.Process.LastSeen, right.Process.LastSeen = time.Time{}, time.Time{}
-	// Ancestor observation bounds are local too. Copy the slices before
-	// clearing them so value comparison never rewrites caller-owned evidence.
-	left.Ancestors = append([]model.Process(nil), left.Ancestors...)
-	right.Ancestors = append([]model.Process(nil), right.Ancestors...)
-	for index := range left.Ancestors {
-		left.Ancestors[index].FirstSeen, left.Ancestors[index].LastSeen = time.Time{}, time.Time{}
-	}
-	for index := range right.Ancestors {
-		right.Ancestors[index].FirstSeen, right.Ancestors[index].LastSeen = time.Time{}, time.Time{}
-	}
-	if isContextObservation(left.Type) && left.Type == right.Type {
-		// IO/argument-match events carry context, never source lifecycle changes.
-		// A later parent or exit must not turn a retry into different evidence.
-		clearDerivedContext(&left.Process)
-		clearDerivedContext(&right.Process)
-		for index := range left.Ancestors {
-			clearDerivedContext(&left.Ancestors[index])
-		}
-		for index := range right.Ancestors {
-			clearDerivedContext(&right.Ancestors[index])
-		}
-	}
-	leftJSON, leftErr := json.Marshal(left)
-	rightJSON, rightErr := json.Marshal(right)
+	leftJSON, leftErr := json.Marshal(comparableSourceEvent(left))
+	rightJSON, rightErr := json.Marshal(comparableSourceEvent(right))
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+}
+
+func comparableSourceEvent(event model.Event) model.Event {
+	event.Sequence = 0
+	event.IngestTime = time.Time{}
+	event.Process.FirstSeen, event.Process.LastSeen = time.Time{}, time.Time{}
+	event.Ancestors = append([]model.Process(nil), event.Ancestors...)
+	contextOnly := isContextObservation(event.Type)
+	for index := range event.Ancestors {
+		ancestor := &event.Ancestors[index]
+		ancestor.FirstSeen, ancestor.LastSeen = time.Time{}, time.Time{}
+		if contextOnly {
+			clearDerivedContext(ancestor)
+		}
+	}
+	if contextOnly {
+		clearDerivedContext(&event.Process)
+	}
+	return event
 }
 
 // GetEvent returns an event by its immutable ID.
@@ -210,6 +233,11 @@ func (s *Store) ListEvents(ctx context.Context, filter EventFilter) ([]model.Eve
 	return events, nil
 }
 
+// The last two predicates also appear in the partial stream index. SQLite
+// needs them explicitly to seek to one stream's highest retained sequence.
+const lastStreamEventSequence = `SELECT COALESCE(MAX(sequence), 0) FROM events
+WHERE boot_id = ? AND stream_id = ? AND stream_id <> '' AND sequence > 0`
+
 // LastSequence returns the highest durable sequence for one boot-scoped
 // stream. The agent uses it to avoid reusing sequence numbers after restart.
 func (s *Store) LastSequence(ctx context.Context, bootID, streamID string) (uint64, error) {
@@ -217,10 +245,7 @@ func (s *Store) LastSequence(ctx context.Context, bootID, streamID string) (uint
 		return 0, errors.New("storage: boot ID and stream ID are required")
 	}
 	var eventSequence int64
-	if err := s.db.QueryRowContext(ctx, `
-SELECT COALESCE(MAX(sequence), 0)
-FROM events
-WHERE boot_id = ? AND stream_id = ?`, bootID, streamID).Scan(&eventSequence); err != nil {
+	if err := s.db.QueryRowContext(ctx, lastStreamEventSequence, bootID, streamID).Scan(&eventSequence); err != nil {
 		return 0, fmt.Errorf("storage: read last event sequence: %w", err)
 	}
 	var metadataSequence int64
@@ -286,6 +311,7 @@ WHERE event_id IN (
     FROM events e
     WHERE e.event_time_ns < ?
       AND NOT EXISTS (SELECT 1 FROM finding_events fe WHERE fe.event_id = e.event_id)
+      AND NOT EXISTS (SELECT 1 FROM delivery_outbox d WHERE d.kind = 'event_bundle' AND d.record_id = e.event_id)
     ORDER BY e.event_time_ns
     LIMIT ?
 )`, cutoff.UnixNano(), limit)

@@ -51,7 +51,7 @@ func (s *Service) normalizeEvent(event *model.Event) error {
 	if len(event.RawJSON) > 0 && !json.Valid(event.RawJSON) {
 		return errors.New("raw_json must contain one valid JSON value")
 	}
-	if len(event.RawJSON) > 0 && !s.config.Privacy.StoreRawEvents {
+	if len(event.RawJSON) > 0 && (!s.config.Privacy.StoreRawEvents || s.config.Limits.ObservationHistoryMinutes > 0) {
 		event.RawJSON = nil
 		event.RedactedFields = appendUnique(event.RedactedFields, "raw_json")
 	} else if len(event.RawJSON) > s.config.Limits.MaxRawJSON {

@@ -60,6 +60,8 @@ func NewServer(backend Backend, defaultQuery, maxQuery, maxBodyBytes int) *Serve
 	mux.HandleFunc("GET /v1/history", server.handleHistory)
 	mux.HandleFunc("GET /v1/services", server.handleServices)
 	mux.HandleFunc("GET /v1/summary", server.handleSummary)
+	mux.HandleFunc("GET /v1/rules", server.handleRules)
+	mux.HandleFunc("GET /v1/observations", server.handleObservations)
 	mux.HandleFunc("GET /v1/resources", server.handleResources)
 	mux.HandleFunc("GET /v1/managed/status", server.handleManagedStatus)
 	mux.HandleFunc("POST /v1/managed/{action}", server.handleManagement)

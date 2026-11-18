@@ -1,0 +1,15 @@
+# Replace the example service, application directories and networks before
+# using this scope on a host. The kernel policies must cover the application.
+version: 1
+detection:
+  enabled: true
+  web_services: [example-web.service]
+service_observations:
+  - service: example-web.service
+    protected_dirs: [/srv/app]
+    allowed_write_dirs: [/srv/app/uploads, /srv/app/cache]
+    allowed_tcp_destinations:
+      - cidr: 192.0.2.0/24
+        ports: [443]
+      - cidr: 2001:db8:10::/64
+        ports: [443]

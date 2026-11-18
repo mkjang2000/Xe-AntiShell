@@ -10,7 +10,7 @@ import (
 	"xe-antishell/internal/response"
 )
 
-// Evidence is scoped to this daemon lifetime and source. Refreshing passive
+// Evidence is scoped to the selected source and subscription. Refreshing passive
 // prerequisites cannot fabricate receipt of a live source event.
 type sourceRuntimeEvidence struct {
 	ExecAt        time.Time
@@ -21,7 +21,7 @@ type sourceRuntimeEvidence struct {
 	CredentialAt  time.Time
 }
 
-func (s *Service) recordRuntimeEvent(event model.Event) {
+func (s *Service) recordRuntimeEvent(event model.Event, generation uint64) {
 	if (event.Type != "process.exec" && !isOperationEvent(event.Type)) || event.Process.PID < 1 || event.Process.Exe == "" || (event.Source != "audit" && event.Source != "tetragon") {
 		return
 	}
@@ -30,6 +30,9 @@ func (s *Service) recordRuntimeEvent(event model.Event) {
 	}
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
+	if event.Source == "tetragon" && generation != s.recovery.generation {
+		return
+	}
 	if s.runtimeEvidence == nil {
 		s.runtimeEvidence = make(map[string]sourceRuntimeEvidence)
 	}
@@ -69,16 +72,21 @@ func (s *Service) recordRuntimeEvent(event model.Event) {
 }
 
 func (s *Service) runtimeSnapshot() (model.AgentStatus, model.CapabilityReport) {
+	return s.runtimeSnapshotFor(s.detectionState.Load())
+}
+
+func (s *Service) runtimeSnapshotFor(policy *detectionState) (model.AgentStatus, model.CapabilityReport) {
 	s.statusMu.RLock()
 	status := s.operationStatus(s.status)
 	report := cloneCapabilityReport(s.report)
 	evidence := s.runtimeEvidence[sourceForCollector(status.Collector)]
+	recovery := s.recovery
+	stream := s.collectorHealthSnapshot()
 	s.statusMu.RUnlock()
 	if status.LastEventAt != nil {
 		at := *status.LastEventAt
 		status.LastEventAt = &at
 	}
-	stream := s.collectorHealthSnapshot()
 	status.CollectorHealth = stream
 	if status.Collector == "tetragon-json" && status.Mode == model.AgentModeActive {
 		if stream != nil && stream.LastError != "" {
@@ -86,16 +94,17 @@ func (s *Service) runtimeSnapshot() (model.AgentStatus, model.CapabilityReport) 
 			status.LastError = stream.LastError
 		} else if evidence.ExecAt.IsZero() && status.Health == model.HealthHealthy {
 			status.Health = model.HealthStarting
-		} else if stream != nil && stream.ParseErrors != 0 && status.Health == model.HealthHealthy {
-			status.Health = model.HealthDegraded
 		}
 	}
 	applyRuntimeCapabilities(&report, status, evidence, stream)
+	if status.Collector == "tetragon-json" {
+		recovery.addDetails(&report)
+	}
 	if report.Capabilities == nil {
 		report.Capabilities = make(map[string]model.Capability)
 	}
 	report.Capabilities[response.CapabilityName] = response.Capability(s.config.Response.AllowTerminate)
-	s.applyPrivilegeCapabilities(&status, &report, evidence)
+	s.applyPrivilegeCapabilities(&status, &report, evidence, policy.privilegeEnabled())
 	status.CapabilityReport = &report
 	return status, report
 }
@@ -158,7 +167,7 @@ func applyRuntimeCapabilities(report *model.CapabilityReport, status model.Agent
 			value.RuntimeReason = "host prerequisite probe only; agent integrity verification is not implemented"
 		case capability.CredentialCapability, capability.FileCapability, capability.NetworkCapability, capability.InterpreterCapability:
 			value.RuntimeState = "unverified"
-			value.RuntimeReason = "optional observation policy has no verified source event in this daemon lifetime"
+			value.RuntimeReason = "awaiting a verified source event from the current collector subscription"
 			if status.Collector != "tetragon-json" && (name != capability.InterpreterCapability || status.Collector != "audit-dispatcher") {
 				value.RuntimeState = "inactive"
 				value.RuntimeReason = "a compatible source is not selected for this observation"

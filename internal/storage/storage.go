@@ -24,8 +24,9 @@ var (
 // Store owns a SQLite database. The daemon is expected to be the only process
 // that opens the database; local clients query it through the daemon API.
 type Store struct {
-	db *sql.DB
-	tx *sql.Tx
+	db   *sql.DB
+	tx   *sql.Tx
+	path string
 }
 
 type sqlExecutor interface {
@@ -78,7 +79,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	store := &Store{db: db}
+	store := &Store{db: db, path: absPath}
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("storage: ping sqlite: %w", err)

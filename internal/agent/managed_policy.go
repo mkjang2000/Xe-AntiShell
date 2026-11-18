@@ -78,6 +78,7 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 	}
 	s.detectionState.Store(&detectionState{
 		engine: detection.NewWithOptions(detection.Options{
+			ServiceObservations:  s.config.ServiceObservations,
 			WebExecutables:       policy.Detection.WebExecutables,
 			WebServices:          policy.Detection.WebServices,
 			Shells:               policy.Detection.Shells,
@@ -150,9 +151,6 @@ func (s *Service) refreshPolicyExpiry(now time.Time) {
 
 func (s *Service) applyResponseDecisions(findings []model.Finding, policy *managed.Policy) {
 	var report model.CapabilityReport
-	if policy != nil && (policy.Response.Mode == "would_block" || policy.Response.Mode == "enforce") {
-		_, report = s.runtimeSnapshot()
-	}
 	for index := range findings {
 		finding := &findings[index]
 		if len(finding.RiskFactors) == 0 {
@@ -192,6 +190,9 @@ func (s *Service) applyResponseDecisions(findings []model.Finding, policy *manag
 		if policy.Response.Mode == "enforce" {
 			required = append(required, "observation.process_exec", "observation.process_lineage", response.CapabilityName)
 			finding.ResponseDecision = "terminate_pending"
+		}
+		if len(required) > 0 && report.Capabilities == nil {
+			_, report = s.runtimeSnapshot()
 		}
 		for _, name := range required {
 			capability, exists := report.Capabilities[name]

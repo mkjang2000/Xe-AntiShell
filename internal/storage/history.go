@@ -10,20 +10,11 @@ import (
 	"fmt"
 	"strings"
 
+	"xe-antishell/internal/detection"
 	"xe-antishell/internal/model"
 )
 
 const unknownService = "unknown"
-
-const findingRuleTitleSQL = `CASE f.rule_id
-WHEN 'web-descendant-root-shell' THEN '웹 서비스에서 관리자 권한 셸 실행'
-WHEN 'web-descendant-shell' THEN '웹 서비스에서 셸 실행'
-WHEN 'web-descendant-download-tool' THEN '웹 서비스에서 다운로드 도구 실행'
-WHEN 'web-descendant-recon-tool' THEN '웹 서비스에서 정보 확인 도구 실행'
-WHEN 'web-descendant-connection-tool' THEN '웹 서비스에서 연결 도구 실행'
-WHEN 'web-descendant-inline-interpreter' THEN '웹 서비스에서 직접 코드 실행 요청'
-WHEN 'web-descendant-temporary-executable' THEN '웹 서비스에서 임시 경로의 실행 파일 실행'
-ELSE '' END`
 
 type historyCursor struct {
 	Time  int64  `json:"t"`
@@ -77,8 +68,20 @@ func (s *Store) History(ctx context.Context, q model.HistoryQuery) (model.Histor
 		if q.Kind == "findings" {
 			// Include the operator-facing rule title and retained process path.
 			// Raw evidence remains searchable for unknown/future rule versions.
-			conditions = append(conditions, "(instr(lower("+body+"),lower(?)) > 0 OR instr(lower(COALESCE(p.exe,'')),lower(?)) > 0 OR instr("+findingRuleTitleSQL+",?) > 0)")
-			args = append(args, q.Search, q.Search, q.Search)
+			search := []string{"instr(lower(" + body + "),lower(?)) > 0", "instr(lower(COALESCE(p.exe,'')),lower(?)) > 0"}
+			args = append(args, q.Search, q.Search)
+			var matches []string
+			needle := strings.ToLower(q.Search)
+			for _, rule := range detection.RuleDefinitions() {
+				if strings.Contains(strings.ToLower(rule.Title), needle) {
+					matches = append(matches, "?")
+					args = append(args, rule.ID)
+				}
+			}
+			if len(matches) != 0 {
+				search = append(search, "f.rule_id IN ("+strings.Join(matches, ",")+")")
+			}
+			conditions = append(conditions, "("+strings.Join(search, " OR ")+")")
 		} else {
 			conditions = append(conditions, "instr(lower("+body+"),lower(?)) > 0")
 			args = append(args, q.Search)

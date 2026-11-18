@@ -22,19 +22,19 @@ func TestPersistenceFailureRecoversOnlyAfterDurableObservation(t *testing.T) {
 	}
 	conflict := first
 	conflict.Type = "security.changed"
-	s.processQueuedEvent(conflict)
+	s.processQueuedEvent(queuedEvent{Event: conflict})
 	failed, _ := s.Status(context.Background())
 	if failed.Mode != model.AgentModeError || failed.Dropped != 1 || failed.LastError == "" {
 		t.Fatalf("failure was hidden: %#v", failed)
 	}
 	// A filtered event and an invalid input provide no proof of recovered storage.
-	s.processQueuedEvent(model.Event{Type: "process.exec", Source: "audit", Process: model.Process{PID: 881, PPID: 1, Exe: "/bin/sh"}})
-	s.processQueuedEvent(model.Event{Source: "test"})
+	s.processQueuedEvent(queuedEvent{Event: model.Event{Type: "process.exec", Source: "audit", Process: model.Process{PID: 881, PPID: 1, Exe: "/bin/sh"}}})
+	s.processQueuedEvent(queuedEvent{Event: model.Event{Source: "test"}})
 	stillFailed, _ := s.Status(context.Background())
 	if stillFailed.LastError == "" || stillFailed.Mode != model.AgentModeError {
 		t.Fatal("non-durable input cleared persistence failure")
 	}
-	s.processQueuedEvent(model.Event{ID: "recovered", Type: "security.test", Source: "test", EventTime: time.Now().UTC()})
+	s.processQueuedEvent(queuedEvent{Event: model.Event{ID: "recovered", Type: "security.test", Source: "test", EventTime: time.Now().UTC()}})
 	recovered, _ := s.Status(context.Background())
 	if recovered.Mode != model.AgentModeActive || recovered.Health != model.HealthHealthy || recovered.LastError != "" || recovered.Dropped != 2 {
 		t.Fatalf("did not recover correctly: %#v", recovered)
@@ -63,7 +63,7 @@ func TestPersistenceRecoveryPreservesIndependentFailures(t *testing.T) {
 			case "response":
 				s.setOperationError("response", errors.New("response failed"))
 			}
-			s.processQueuedEvent(model.Event{ID: "saved", Type: "security.test", Source: "test", EventTime: time.Now().UTC()})
+			s.processQueuedEvent(queuedEvent{Event: model.Event{ID: "saved", Type: "security.test", Source: "test", EventTime: time.Now().UTC()}})
 			status, _ := s.Status(context.Background())
 			if strings.Contains(status.LastError, "old storage failure") || !strings.Contains(status.LastError, reason+" failed") || status.Health == model.HealthHealthy || status.Dropped != 0 {
 				t.Fatalf("wrong independent-error handling: %#v", status)
@@ -89,6 +89,45 @@ func TestRetentionStartupDeferralCancelsWithoutDatabaseAccess(t *testing.T) {
 		t.Fatal("shutdown blocked by retention startup wait")
 	}
 	s.producerWG.Wait()
+}
+
+func TestLateCommitCannotRecoverDisconnectedSubscription(t *testing.T) {
+	s, store := newTestService(t, config.CollectorDisabled, nil)
+	defer store.Close()
+	ctx := context.Background()
+	s.setRuntimeState(model.AgentModeActive, model.HealthHealthy, "tetragon-json", nil)
+	s.recordCollectorDisconnect(errors.New("disconnected"))
+
+	old := model.Event{ID: "queued-before-gap", BootID: "boot", Source: "tetragon", Type: "process.exec",
+		Process: model.Process{PID: 50, ExecID: "old", Exe: "/bin/worker", OriginService: "old.service"}}
+	s.processQueuedEvent(queuedEvent{Event: old})
+	if _, err := store.GetEvent(ctx, old.ID); err != nil {
+		t.Fatalf("queued evidence was lost: %v", err)
+	}
+	if !s.runtimeEvidence["tetragon"].ExecAt.IsZero() || !s.recovery.recoveredAt.IsZero() {
+		t.Fatal("late event from a disconnected subscription claimed live monitoring")
+	}
+
+	next := model.Event{ID: old.ID, BootID: "boot", Source: "tetragon", Type: "process.exec",
+		Process: model.Process{PID: 51, PPID: 50, ExecID: "new", Exe: "/bin/worker"}}
+	s.processQueuedEvent(queuedEvent{Event: next, generation: 1})
+	if s.operationErrors["event_store"] == "" || !s.recovery.recoveredAt.IsZero() {
+		t.Fatal("failed commit closed the collection gap")
+	}
+	next.ID = "stored-after-gap"
+	s.recordOperationalError(errors.New("retention failed"))
+	s.processQueuedEvent(queuedEvent{Event: next, generation: 1})
+	saved, err := store.GetEvent(ctx, next.ID)
+	if err != nil || saved.Process.ParentKey != "" || saved.Process.OriginService != "" {
+		t.Fatalf("PID-only context crossed collection gap: %+v, %v", saved.Process, err)
+	}
+	if s.recovery.recoveredAt.IsZero() || s.operationErrors["event_store"] != "" {
+		t.Fatal("successful commit did not restore collection")
+	}
+	status, _ := s.Status(ctx)
+	if status.Health == model.HealthHealthy || status.LastError != "retention failed" {
+		t.Fatalf("collection recovery hid independent failure: %+v", status)
+	}
 }
 
 func TestPostCommitResponseFailureDoesNotCountAsDroppedEvidence(t *testing.T) {

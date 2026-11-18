@@ -268,6 +268,14 @@ func (t *Tracker) CurrentByPID(pid int) (model.Process, bool) {
 	return process, ok
 }
 
+// ForgetCurrentPIDs drops PID ownership assumptions after a collection gap.
+// Historical relationships remain available through their boot-scoped keys.
+func (t *Tracker) ForgetCurrentPIDs() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	clear(t.current)
+}
+
 // Ancestors returns nearest parent first. Cycles and corrupted graphs are
 // bounded so malformed input cannot cause an infinite traversal.
 func (t *Tracker) Ancestors(processKey string, maxDepth int) []model.Process {

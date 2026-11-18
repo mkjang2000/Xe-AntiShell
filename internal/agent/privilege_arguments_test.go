@@ -47,12 +47,12 @@ func TestPrivilegeEngineNeverAdvertisesSupportForNarrowedSource(t *testing.T) {
 	service.config.Collector.Tetragon.Args = args
 	status := model.AgentStatus{Collector: "tetragon-json"}
 	report := model.CapabilityReport{Capabilities: map[string]model.Capability{}}
-	service.applyPrivilegeCapabilities(&status, &report, sourceRuntimeEvidence{})
+	service.applyPrivilegeCapabilities(&status, &report, sourceRuntimeEvidence{}, false)
 	if cap := report.Capabilities[privilegeEngineCapability]; cap.State != model.CapabilitySupported || cap.RuntimeState != "available" {
 		t.Fatalf("reviewed source unavailable: %+v", cap)
 	}
 	service.config.Collector.Tetragon.Args = append(append([]string{}, args...), "--exclude-fields=process.creds")
-	service.applyPrivilegeCapabilities(&status, &report, sourceRuntimeEvidence{})
+	service.applyPrivilegeCapabilities(&status, &report, sourceRuntimeEvidence{}, false)
 	if cap := report.Capabilities[privilegeEngineCapability]; cap.State != model.CapabilityUnsupported || cap.RuntimeState != "inactive" {
 		t.Fatalf("proof removal source advertised as compatible: %+v", cap)
 	}

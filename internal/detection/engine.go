@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"xe-antishell/internal/config"
 	"xe-antishell/internal/identity"
 	"xe-antishell/internal/model"
 )
@@ -16,6 +17,7 @@ type AncestorProvider interface {
 }
 
 type Engine struct {
+	serviceObservations  map[string]config.ServiceObservationPolicy
 	webExecutables       map[string]struct{}
 	webServices          map[string]struct{}
 	shells               map[string]struct{}
@@ -29,6 +31,7 @@ type Engine struct {
 // Options configures an immutable detector snapshot. ExtendedProcessRules is
 // opt-in so existing local and signed policies retain their shell-only behavior.
 type Options struct {
+	ServiceObservations  []config.ServiceObservationPolicy
 	WebExecutables       []string
 	WebServices          []string
 	Shells               []string
@@ -41,6 +44,7 @@ type Options struct {
 // NewWithOptions preserves executable service aliases used by NewWithServices.
 func NewWithOptions(options Options) *Engine {
 	engine := NewWithServices(options.WebExecutables, options.WebServices, options.Shells, options.AllowedPairs)
+	engine.serviceObservations = compileServiceObservations(options)
 	engine.extendedProcessRules = options.ExtendedProcessRules
 	engine.privilegeRules = options.PrivilegeRules
 	engine.rootExecAlerts = options.RootExecAlerts
@@ -100,6 +104,9 @@ func processName(process model.Process) string {
 }
 
 func (e *Engine) Evaluate(event model.Event, lineage AncestorProvider) []model.Finding {
+	if event.Type == "file.write" || event.Type == "network.connect" {
+		return e.evaluateServiceObservation(event)
+	}
 	findings := e.evaluateWeb(event, lineage)
 	// Existing web findings already report this execution; retain one primary
 	// finding instead of duplicating the same root exec in the global profile.
@@ -132,11 +139,11 @@ func (e *Engine) evaluateWeb(event model.Event, lineage AncestorProvider) []mode
 	}
 
 	severity := "high"
-	ruleID := "web-descendant-shell"
+	ruleID := ruleWebDescendantShell
 	summary := fmt.Sprintf("shell %s descended from web process %s", processName(event.Process), origin)
 	if event.Process.EUID == 0 {
 		severity = "critical"
-		ruleID = "web-descendant-root-shell"
+		ruleID = ruleWebDescendantRootShell
 		summary = fmt.Sprintf("root shell %s descended from web process %s", processName(event.Process), origin)
 	}
 	confidence := 0.55
@@ -147,11 +154,10 @@ func (e *Engine) evaluateWeb(event model.Event, lineage AncestorProvider) []mode
 		confidence = 0.75
 	}
 
-	const ruleVersion = "0.1.0"
 	return []model.Finding{{
-		ID:               identity.FindingID(ruleID, ruleVersion, event.ID),
+		ID:               identity.FindingID(ruleID, baseRuleVersion, event.ID),
 		RuleID:           ruleID,
-		RuleVersion:      ruleVersion,
+		RuleVersion:      baseRuleVersion,
 		CreatedAt:        event.EventTime,
 		Severity:         severity,
 		Confidence:       confidence,

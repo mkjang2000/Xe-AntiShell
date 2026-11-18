@@ -1,6 +1,6 @@
 Name:           xe-antishell
 Version:        0.1.0
-Release:        28%{?dist}
+Release:        33%{?dist}
 Summary:        Standalone Linux host security monitoring agent
 License:        MIT AND Apache-2.0 AND BSD-3-Clause AND BSD-2-Clause AND BSD-1-Clause AND SunPro
 URL:            https://github.com/mkjang2000/Xe-AntiShell
@@ -71,6 +71,24 @@ fi
 %systemd_postun_with_restart sentinel-web.service
 
 %changelog
+* Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-33
+- Permit the normal SELinux RPM scriptlet transition in the signed package updater
+
+* Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-32
+- Store and deliver compact observations while preserving source identity and detection evidence
+- Apply a one-hour observation history default to existing RPM deployments with no explicit setting
+
+* Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-31
+- Use the boot and stream sequence index at startup on hosts with large event history
+
+* Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-30
+- Reduce database maintenance contention with incoming observations on busy hosts
+
+* Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-29
+- Recover interrupted Tetragon subscriptions and report confirmed collection gaps
+- Expose built-in rule status, offline comparisons and service-scoped file/TCP samples
+- Measure daily event storage, delivery backlog, loss and acknowledgement recovery
+
 * Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-28
 - Reduce credential validation and Tetragon conversion allocation costs without changing evidence
 - Keep strict input checks, mutable ownership and unknown credential semantics

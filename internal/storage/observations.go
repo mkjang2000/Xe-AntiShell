@@ -51,18 +51,34 @@ func sqliteContention(err error) bool {
 // PersistObservation commits evidence, its derived findings and its delivery
 // obligation together. A crash cannot strand an accepted managed observation.
 func (s *Store) PersistObservation(ctx context.Context, event model.Event, findings []model.Finding) error {
+	_, err := s.PersistObservationResult(ctx, event, findings)
+	return err
+}
+
+// PersistObservationResult reports whether the committed transaction inserted
+// a new event. A duplicate or a failed transaction returns false.
+func (s *Store) PersistObservationResult(ctx context.Context, event model.Event, findings []model.Finding) (bool, error) {
+	return s.PersistObservationWithHistory(ctx, event, findings, false)
+}
+
+// PersistObservationWithHistory can retain a minimal event and delivery payload
+// after evaluation, while keeping the source digest for immutable ID checks.
+func (s *Store) PersistObservationWithHistory(ctx context.Context, event model.Event, findings []model.Finding, compact bool) (bool, error) {
 	tx, err := beginObservation(ctx, s.db.BeginTx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 	child := &Store{db: s.db, tx: tx}
-	inserted, eventJSON, err := child.saveEventResult(ctx, event)
+	inserted, eventJSON, err := child.saveEventResult(ctx, event, compact)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, process := range append(append([]model.Process(nil), event.Ancestors...), event.Process) {
 		if process.Key != "" && process.PID > 0 {
+			if compact {
+				process = compactProcess(process)
+			}
 			var err error
 			if isContextObservation(event.Type) {
 				err = child.saveProcessContext(ctx, event.BootID, process)
@@ -70,31 +86,39 @@ func (s *Store) PersistObservation(ctx context.Context, event model.Event, findi
 				err = child.SaveProcess(ctx, event.BootID, process)
 			}
 			if err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
+	// File and TCP decisions belong to the first accepted observation. A
+	// retry after a scope change must agree with the already queued bundle.
+	if !inserted && (event.Type == "file.write" || event.Type == "network.connect") {
+		findings = nil
+	}
 	for _, finding := range findings {
 		if err := child.SaveFinding(ctx, finding); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if inserted {
 		var enabled int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM managed_state").Scan(&enabled); err != nil {
-			return err
+			return false, err
 		}
 		if enabled > 0 {
 			payload, err := marshalEventBundle(eventJSON, findings)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if err := child.enqueue(ctx, managed.RecordKindEventBundle, event.ID, payload); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return inserted, nil
 }
 
 // marshalEventBundle accepts only event JSON freshly encoded by saveEventResult

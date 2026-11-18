@@ -20,6 +20,11 @@ type staticProber struct {
 	report model.CapabilityReport
 }
 
+// Direct-input fixtures use the initial subscription generation.
+func (s *Service) processEvent(ctx context.Context, event *model.Event) error {
+	return s.processObservation(ctx, event, 0, time.Time{})
+}
+
 func (p staticProber) Probe(context.Context) (model.CapabilityReport, error) { return p.report, nil }
 
 type staticProcessSource struct {

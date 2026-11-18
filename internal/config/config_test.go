@@ -4,7 +4,37 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"xe-antishell/internal/buildinfo"
 )
+
+func TestPackagedObservationHistoryDefaultPreservesSiteOverrides(t *testing.T) {
+	release, arch := buildinfo.PackageRelease, buildinfo.PackageArch
+	t.Cleanup(func() { buildinfo.PackageRelease, buildinfo.PackageArch = release, arch })
+	buildinfo.PackageRelease, buildinfo.PackageArch = "32.el9", "x86_64"
+
+	for _, tc := range []struct {
+		name, yaml string
+		want       int
+	}{
+		{"retained site file", "limits:\n  retention_days: 14\n", 60},
+		{"explicit zero", "limits:\n  observation_history_minutes: 0\n", 0},
+		{"explicit window", "limits:\n  observation_history_minutes: 120\n", 120},
+		{"missing configuration", "", 60},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := Decode(strings.NewReader(tc.yaml))
+			if err != nil || c.Limits.ObservationHistoryMinutes != tc.want {
+				t.Fatalf("observation history = %d, want %d, error %v", c.Limits.ObservationHistoryMinutes, tc.want, err)
+			}
+		})
+	}
+	buildinfo.PackageRelease, buildinfo.PackageArch = "", ""
+	c, err := Decode(strings.NewReader("limits:\n  retention_days: 14\n"))
+	if err != nil || c.Limits.ObservationHistoryMinutes != 0 {
+		t.Fatalf("development default changed: %d, %v", c.Limits.ObservationHistoryMinutes, err)
+	}
+}
 
 func TestDecodeDefaultsAndOverrides(t *testing.T) {
 	cfg, err := Decode(strings.NewReader(`

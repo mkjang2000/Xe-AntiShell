@@ -2,6 +2,32 @@ package webpanel
 
 import "testing"
 
+func TestOverviewCollectionGap(t *testing.T) {
+	runBrowserBehavior(t, `
+const details = {last_disconnect_at:"2026-01-10T10:00:00.123456789Z", reconnect_attempts:"0"};
+context.status = {collector:"tetragon-json", health:"degraded", capability_report:{capabilities:{"collector.tetragon":{details}}}};
+function refreshGap() {
+  vm.runInContext("renderOperatorOverview({status})", context);
+  return get("collectorGap");
+}
+const startText = vm.runInContext("fmtTime(status.capability_report.capabilities['collector.tetragon'].details.last_disconnect_at)", context);
+assert.equal(refreshGap().hidden, false);
+assert.equal(get("collectorGap").textContent, "최근 수집 공백 · "+startText+" 중단 · 복구 대기 중 · 누적 재연결 시도 0회");
+details.last_recovered_at = "2026-01-10T10:00:40Z";
+details.reconnect_attempts = "3";
+const endText = vm.runInContext("fmtTime(status.capability_report.capabilities['collector.tetragon'].details.last_recovered_at)", context);
+assert.equal(refreshGap().textContent, "최근 수집 공백 · "+startText+" 중단 · "+endText+" 복구 · 누적 재연결 시도 3회");
+context.status.collector = "audit-dispatcher";
+assert.equal(refreshGap().hidden, true);
+context.status.collector = "tetragon-json";
+delete details.last_disconnect_at;
+assert.equal(refreshGap().hidden, true);
+delete context.status.capability_report;
+assert.equal(refreshGap().hidden, true);
+assert.equal(get("collectorGap").textContent, "");
+`)
+}
+
 func TestEffectiveResponseAndCollectionUncertainty(t *testing.T) {
 	runBrowserBehavior(t, `
 assert.equal(vm.runInContext("effectiveResponse(null).label", context), "미확인");

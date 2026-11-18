@@ -29,11 +29,15 @@ type ManagedState struct {
 	Recovery        managed.RecoveryVerifier `json:"recovery"`
 }
 type DeliveryStatus struct {
-	SpoolID      string `json:"spool_id"`
-	Acknowledged uint64 `json:"acknowledged"`
-	Pending      int    `json:"pending"`
-	PendingBytes int64  `json:"pending_bytes"`
-	LostRecords  uint64 `json:"lost_records"`
+	SpoolID            string     `json:"spool_id"`
+	Acknowledged       uint64     `json:"acknowledged"`
+	Pending            int        `json:"pending"`
+	PendingBytes       int64      `json:"pending_bytes"`
+	LostRecords        uint64     `json:"lost_records"`
+	DisconnectAt       *time.Time `json:"disconnect_at,omitempty"`
+	FirstRecoveryACKAt *time.Time `json:"first_recovery_ack_at,omitempty"`
+	DrainedAt          *time.Time `json:"drained_at,omitempty"`
+	OutageLostRecords  uint64     `json:"outage_lost_records,omitempty"`
 }
 
 func (s *Store) ManagedState(ctx context.Context) (ManagedState, error) {
@@ -75,7 +79,18 @@ func (s *Store) SaveManagedState(ctx context.Context, state ManagedState) error 
 }
 
 func (s *Store) enqueue(ctx context.Context, kind, id string, payload []byte) error {
-	if err := (managed.Record{Sequence: 1, Kind: kind, ID: id, Payload: payload}).Validate(); err != nil {
+	record := managed.Record{Sequence: 1, Kind: kind, ID: id, Payload: payload}
+	// A valid local bundle can exceed the transport protocol's own maximum
+	// as well as our 512 KiB spool limit. Validate the original JSON shape
+	// and record identity but keep local evidence and account that lost send.
+	if len(payload) > managed.MaxRecordBytes {
+		body := bytes.TrimSpace(payload)
+		if len(body) == 0 || body[0] != '{' || !json.Valid(body) {
+			return errors.New("invalid oversized delivery payload")
+		}
+		record.Payload = json.RawMessage("{}")
+	}
+	if err := record.Validate(); err != nil {
 		return err
 	}
 	if len(payload) > 512<<10 {
@@ -94,7 +109,7 @@ func (s *Store) enqueue(ctx context.Context, kind, id string, payload []byte) er
 		return err
 	}
 	var size int64
-	if err := s.executor().QueryRowContext(ctx, "SELECT COALESCE(sum(length(payload)),0) FROM delivery_outbox").Scan(&size); err != nil {
+	if err := s.executor().QueryRowContext(ctx, "SELECT pending_bytes FROM outbox_usage WHERE singleton=1").Scan(&size); err != nil {
 		return err
 	}
 	if size+int64(len(payload)) > MaxSpoolBytes {
@@ -119,18 +134,6 @@ func (s *Store) EnqueueAudit(ctx context.Context, audit managed.AuditRecord) err
 		return err
 	}
 	return tx.Commit()
-}
-func (s *Store) DeliveryStatus(ctx context.Context) (DeliveryStatus, error) {
-	var result DeliveryStatus
-	err := s.db.QueryRowContext(ctx, "SELECT spool_id,acknowledged,lost_records FROM delivery_checkpoint WHERE singleton=1").Scan(&result.SpoolID, &result.Acknowledged, &result.LostRecords)
-	if errors.Is(err, sql.ErrNoRows) {
-		return result, ErrNotFound
-	}
-	if err != nil {
-		return result, err
-	}
-	err = s.db.QueryRowContext(ctx, "SELECT count(*),COALESCE(sum(length(payload)),0) FROM delivery_outbox").Scan(&result.Pending, &result.PendingBytes)
-	return result, err
 }
 func (s *Store) DeliveryBatch(ctx context.Context, limit int) (managed.Batch, error) {
 	if limit < 1 || limit > 64 {
@@ -163,28 +166,6 @@ func (s *Store) DeliveryBatch(ctx context.Context, limit int) (managed.Batch, er
 		size += len(item.Payload)
 	}
 	return batch, rows.Err()
-}
-func (s *Store) Acknowledge(ctx context.Context, ack managed.Ack, sent managed.Batch) error {
-	if ack.SpoolID != sent.SpoolID || len(sent.Records) == 0 || ack.Acknowledged > sent.Records[len(sent.Records)-1].Sequence || ack.Acknowledged < sent.Records[0].Sequence-1 {
-		return errors.New("invalid delivery acknowledgement")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, "UPDATE delivery_checkpoint SET acknowledged=? WHERE singleton=1 AND spool_id=? AND acknowledged<=?", ack.Acknowledged, ack.SpoolID, ack.Acknowledged)
-	if err != nil {
-		return err
-	}
-	n, _ := result.RowsAffected()
-	if n != 1 {
-		return errors.New("stale delivery acknowledgement")
-	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM delivery_outbox WHERE sequence<=?", ack.Acknowledged); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 func (s *Store) SavePolicy(ctx context.Context, policy managed.SignedPolicy) error {
 	raw, err := json.Marshal(policy)

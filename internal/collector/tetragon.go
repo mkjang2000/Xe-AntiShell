@@ -190,7 +190,11 @@ func (c *TetragonJSON) consume(ctx context.Context, reader io.Reader, sink Event
 			c.health.update(func(h *HealthSnapshot) { h.LastError = err.Error() })
 			return fmt.Errorf("submit tetragon event: %w", err)
 		}
-		c.health.update(func(h *HealthSnapshot) { h.EventsEmitted++; h.LastEventAt = event.EventTime })
+		c.health.update(func(h *HealthSnapshot) {
+			h.EventsEmitted++
+			h.LastEventAt = event.EventTime
+			h.LastError = ""
+		})
 	}
 	if err := scanner.Err(); err != nil {
 		c.health.update(func(h *HealthSnapshot) { h.ParseErrors++; h.LastError = err.Error() })

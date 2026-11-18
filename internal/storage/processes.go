@@ -202,9 +202,7 @@ DELETE FROM processes
 WHERE process_key IN (
     SELECT p.process_key
     FROM processes p
-    WHERE p.last_seen_ns < ?
-      AND NOT EXISTS (SELECT 1 FROM events e WHERE e.process_key = p.process_key)
-      AND NOT EXISTS (SELECT 1 FROM findings f WHERE f.process_key = p.process_key)
+    WHERE p.last_seen_ns < ?`+unreferencedProcess+`
     ORDER BY p.last_seen_ns, p.process_key
     LIMIT ?
 )`, cutoff.UnixNano(), limit)

@@ -9,7 +9,8 @@ User=root
 Group=root
 ExecStart=/usr/sbin/sentinel-updater
 UMask=0077
-NoNewPrivileges=true
+# On enforcing SELinux hosts RPM may need to enter rpm_script_t for scriptlets.
+NoNewPrivileges=false
 PrivateTmp=true
 ProtectHome=true
 TimeoutStartSec=420s

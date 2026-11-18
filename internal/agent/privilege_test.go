@@ -137,20 +137,20 @@ func TestCredentialReceiptKeepsSourceTimeAcrossQueueDelay(t *testing.T) {
 	old := time.Now().UTC().Add(-time.Minute)
 	e.EventTime = old
 	e.IngestTime = old.Add(time.Second)
-	s.recordRuntimeEvent(e)
+	s.recordRuntimeEvent(e, 0)
 	got := s.runtimeEvidence["tetragon"].CredentialAt
 	if !got.Equal(old) {
 		t.Fatal("delayed queued credential receipt became fresh", got)
 	}
 	e.EventTime = old.Add(-time.Hour)
 	e.IngestTime = old.Add(time.Second)
-	s.recordRuntimeEvent(e)
+	s.recordRuntimeEvent(e, 0)
 	if !s.runtimeEvidence["tetragon"].CredentialAt.Equal(got) {
 		t.Fatal("out of order event overwrote latest valid evidence")
 	}
 	e.EventTime = time.Now().Add(time.Hour)
 	e.IngestTime = e.EventTime
-	s.recordRuntimeEvent(e)
+	s.recordRuntimeEvent(e, 0)
 	if !s.runtimeEvidence["tetragon"].CredentialAt.Equal(got) {
 		t.Fatal("future source event established fresh evidence")
 	}

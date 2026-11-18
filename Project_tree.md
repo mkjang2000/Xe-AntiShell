@@ -34,7 +34,11 @@ Xe-AntiShell/
 │   ├── agent/                     # Pipeline, runtime evidence, Tetragon context/filtering
 │   │   ├── event_normalization.go # Queue-boundary privacy, exact-proof validation and event limits
 │   │   ├── operation_events.go    # Typed operation validation and lifecycle-safe context observation
+│   │   ├── rules.go               # Effective detector policy and selected-source sensor evidence
+│   │   ├── rule_comparison.go     # Offline comparison of two configurations on the same JSONL sample
 │   │   ├── processing.go          # Durable event pipeline and persistence/response failure separation
+│   │   ├── capacity.go            # Local capacity readings and heartbeat delivery metrics
+│   │   ├── collector_recovery.go  # Tetragon resubscription, backoff and last interruption interval
 │   │   ├── runtime_errors.go      # Independent recoverable operation errors over collector state
 │   │   ├── retention.go           # Deferred and paced database maintenance
 │   │   ├── privilege.go           # Opt-in engine capability, paired receipt epoch and fixed-policy worker
@@ -49,7 +53,12 @@ Xe-AntiShell/
 │   │   ├── privilege_credentials.go # Complete credential/capability/namespace decoding
 │   │   └── tetragon_observations.go # Fixed-policy inline/file/TCP metadata adapters
 │   ├── config/                    # Strict configuration loading and validation
+│   │   └── service_observations.go # Bounded host-local protected directories and TCP destination scopes
 │   ├── detection/                 # Web-origin attribution and opt-in process behavior rules
+│   │   ├── service_observations.go # Exact active service scopes and detection-only operation findings
+│   │   ├── protected_file_write.go # Positive writes under protected directories
+│   │   ├── network_destination.go # TCP initiations outside the service CIDR/port list
+│   │   ├── catalog.go             # Shared built-in rule IDs, titles, versions and evidence requirements
 │   │   ├── classifiers.go         # Process/path observations without command reconstruction
 │   │   ├── execution.go           # Code-free exact-argv/policy evidence and runtime-argument removal
 │   │   ├── privilege.go           # Global root-exec retention and suspicious/all alert selection
@@ -69,6 +78,11 @@ Xe-AntiShell/
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
 │   ├── storage/                   # Serialized SQLite persistence and embedded migrations
 │   │   ├── observations.go        # Atomic evidence/outbox save, call-local JSON reuse and bounded writer retry
+│   │   ├── capacity.go            # UTC storage counters, expiry backlog and filesystem usage
+│   │   ├── delivery_capacity.go   # Transactional acknowledgement, outage and drain checkpoints
+│   │   ├── process_sweep.go       # Bounded, resumable pruning of unreferenced process records
+│   │   ├── compact_observations.go # Minimal event projection and source-evidence digest
+│   │   ├── observation_samples.go # Bounded file/TCP review using the immutable event service
 │   │   └── process_context.go     # Durable operation context merge preserving process lifecycle
 │   ├── updates/                   # Publisher/deployment trust, private jobs, RPM apply and collection recheck
 │   └── webpanel/                  # Authentication, monitoring APIs and embedded UI
@@ -90,7 +104,7 @@ Xe-AntiShell/
 │   └── tetragon/                  # Reviewed overrides plus pinned artifact/config/runtime/rollback helpers
 │       ├── observations.py        # Separate explicit --apply entry for monitor-only observation policies
 │       └── observation_*.py       # Fixed scope, real probes, ownership and transactional rollback
-├── testdata/events/               # Controlled events and positive/legitimate process scenarios
+├── testdata/events/               # Controlled process, protected file-write and TCP destination samples
 ├── third_party/licenses/          # Upstream Go/runtime license texts for redistribution
 ├── protocol/                      # Independently tagged, stdlib-only shared Go module
 │   ├── managed/                   # Wire contracts, signatures, removal and recovery primitives
@@ -102,6 +116,7 @@ Xe-AntiShell/
 │       └── observations.go        # Optional code-free execution/file/network facts
 ├── scripts/
 │   ├── build-rpm.sh               # Checked source selection and isolated local RPM build
+│   ├── bootstrap-rpm-updater.sh    # One-time local upgrade to the SELinux-compatible managed updater
 │   ├── build_rpm_test.sh          # Mocked tools and real source archive checks
 │   ├── check-source.py            # Candidate source privacy and documentation checks
 │   ├── check-detection.py         # Temporary agent/CLI replay check without live changes
@@ -113,6 +128,9 @@ Xe-AntiShell/
 ├── devdocs/plans/
 │   ├── process-observation-clock.md # Lifecycle/observation clock separation and late-event persistence
 │   ├── capability-report-consistency.md # Configured collector discovery and independent live evidence
+│   ├── service-observation-rules.md # Host-local file and TCP detection with signed service membership
+│   ├── operator-rules-observations-capacity.md # Rule visibility, I/O sampling and delivery measurement
+│   ├── collector-recovery.md       # Subscription-scoped evidence and recovery after a durable insert
 │   ├── tetragon-installation.md    # Optional collector install, verification and rollback design
 │   ├── enrollment-diagnostics.md  # Credential-safe failure categories and enrollment status
 │   ├── interactive-installation.md # TTY workflow and trusted single-code enrollment

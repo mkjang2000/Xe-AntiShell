@@ -39,22 +39,14 @@ function findingTitle(finding) {
 }
 
 function findingRuleText(finding) {
-  const rules = {
-    "web-descendant-root-shell": {title: "웹 서비스에서 관리자 권한 셸 실행", description: "서비스가 운영체제 명령을 실행했습니다. 정상 배포 작업인지 확인하세요."},
-    "web-descendant-shell": {title: "웹 서비스에서 셸 실행", description: "서비스가 운영체제 명령을 실행했습니다. 정상 배포 작업인지 확인하세요."},
-    "web-descendant-download-tool": {title: "웹 서비스에서 다운로드 도구 실행", description: "다운로드 기능이 있는 도구가 실행됐습니다. 실제 다운로드 여부와 정상 운영 작업인지는 추가 확인이 필요합니다."},
-    "web-descendant-recon-tool": {title: "웹 서비스에서 정보 확인 도구 실행", description: "시스템·계정·네트워크 정보 확인용 도구가 실행됐습니다. 정상 운영 작업인지 확인하세요."},
-    "web-descendant-connection-tool": {title: "웹 서비스에서 연결 도구 실행", description: "연결 기능이 있는 도구가 실행됐습니다. 실제 연결 여부와 실행 목적은 추가 확인이 필요합니다."},
-    "web-descendant-inline-interpreter": {title: "웹 서비스에서 직접 코드 실행 요청", description: "직접 코드 실행 옵션을 지정한 인터프리터가 실행됐습니다. 코드 내용과 실행 성공 여부는 이 기록으로 확인할 수 없습니다."},
-    "web-descendant-temporary-executable": {title: "웹 서비스에서 임시 경로의 실행 파일 실행", description: "임시 또는 메모리 파일 경로의 프로그램이 실행됐습니다. 파일의 출처와 정상 운영 작업인지는 추가 확인이 필요합니다."},
-    "web-descendant-temporary-script": {title: "웹 서비스에서 임시 경로의 스크립트 실행 요청", description: "인터프리터에 임시·메모리·파일 디스크립터 경로의 스크립트가 지정됐습니다. 파일 내용과 실행 성공 여부는 이 기록으로 확인할 수 없습니다."},
-  };
-  return isPrivilegeRule(finding.rule_id) ? privilegeRuleLabels[finding.rule_id] : Object.prototype.hasOwnProperty.call(rules, finding.rule_id) ? rules[finding.rule_id] : {title: "의심 행위 탐지", description: "탐지 조건에 해당하는 실행 기록입니다. 상세 기록을 확인하세요."};
+  return ruleDefinition(finding.rule_id) || {title: "의심 행위 탐지", description: "탐지 조건에 해당하는 실행 기록입니다. 상세 기록을 확인하세요."};
 }
 
 function findingRiskFactorText(factor) {
   const reasons = {
     web_origin: "웹 서비스와 연결된 실행 경로가 관찰됐습니다.",
+    protected_file_write: "서비스가 쓰기 예외에 포함되지 않은 보호 경로에 실제 바이트를 썼습니다.",
+    tcp_destination_outside_allowlist: "TCP 연결 시작이 서비스의 허용 주소·포트 범위를 벗어났습니다.",
     shell_execution: "셸 프로그램 실행이 관찰됐습니다.",
     download_tool: "다운로드 기능이 있는 도구 실행이 관찰됐습니다. 다운로드 성공 여부는 확인되지 않았습니다.",
     recon_tool: "시스템·계정·네트워크 정보 확인용 도구 실행이 관찰됐습니다.",

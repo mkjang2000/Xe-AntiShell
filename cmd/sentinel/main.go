@@ -55,6 +55,32 @@ func run(args []string, stdout, stderr io.Writer) error {
 	switch remaining[0] {
 	case "managed":
 		return runManaged(ctx, client, remaining[1:], stdout, stderr)
+	case "capacity":
+		if len(remaining) != 1 {
+			return errors.New("capacity does not accept arguments")
+		}
+		status, err := client.Status(ctx)
+		if err != nil {
+			return err
+		}
+		return writeCapacity(stdout, status, *jsonOutput)
+	case "observations":
+		return runObservations(ctx, client, remaining[1:], stdout, stderr, *jsonOutput)
+	case "rules":
+		if len(remaining) > 1 && remaining[1] == "compare" {
+			return runRuleComparison(ctx, remaining[2:], stdout, stderr, *jsonOutput)
+		}
+		if len(remaining) != 1 {
+			return errors.New("rules accepts only the compare subcommand")
+		}
+		catalog, err := client.Rules(ctx)
+		if err != nil {
+			return err
+		}
+		if *jsonOutput {
+			return writeJSON(stdout, catalog)
+		}
+		return writeRules(stdout, catalog)
 	case "resources":
 		if len(remaining) != 1 {
 			return errors.New("resources does not accept arguments")
@@ -87,6 +113,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		if status.LastEventAt != nil {
 			fmt.Fprintf(stdout, "Last event: %s\n", status.LastEventAt.Local().Format(time.RFC3339Nano))
 		}
+		writeCollectorGap(stdout, status)
 		if status.LastError != "" {
 			fmt.Fprintf(stdout, "Last error: %q\n", status.LastError)
 		}
@@ -185,6 +212,29 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 }
 
+func writeCollectorGap(output io.Writer, status model.AgentStatus) {
+	if status.Collector != "tetragon-json" || status.CapabilityReport == nil {
+		return
+	}
+	details := status.CapabilityReport.Capabilities["collector.tetragon"].Details
+	start, err := time.Parse(time.RFC3339Nano, details["last_disconnect_at"])
+	if err != nil {
+		return
+	}
+	end := "pending"
+	if recovered := details["last_recovered_at"]; recovered != "" {
+		if at, err := time.Parse(time.RFC3339Nano, recovered); err == nil {
+			end = at.Local().Format(time.RFC3339Nano)
+		} else {
+			end = "unknown"
+		}
+	}
+	fmt.Fprintf(output, "Last collection interruption: %s\nCollection recovery: %s\n", start.Local().Format(time.RFC3339Nano), end)
+	if attempts, err := strconv.ParseUint(details["reconnect_attempts"], 10, 64); err == nil {
+		fmt.Fprintf(output, "Reconnect attempts since startup: %d\n", attempts)
+	}
+}
+
 func parseLimit(name string, args []string, output io.Writer) (int, error) {
 	command := flag.NewFlagSet(name, flag.ContinueOnError)
 	command.SetOutput(output)
@@ -216,7 +266,10 @@ Commands:
   capabilities [--refresh]
   events [--limit N]
   findings [--limit N]
+  rules [compare --help]
+  observations [--limit N] [--service UNIT] [--protected-dir ABS] [--allowed-dir ABS]
   resources
+  capacity
   managed status|enroll|challenge|authorize-removal|recover-removal|removal-check
   process-tree --pid PID
   audit-plugin [--max-line-bytes N]

@@ -133,12 +133,12 @@ func TestRuntimeCapabilitiesRequireSelectedSourceEvidence(t *testing.T) {
 		t.Fatalf("command startup claimed healthy source before receipt: %s", status.Health)
 	}
 	event := model.Event{Type: "process.exec", Source: "replay", Process: model.Process{PID: 100, Exe: "/bin/sh"}}
-	s.recordRuntimeEvent(event)
+	s.recordRuntimeEvent(event, 0)
 	event.Source = "audit"
-	s.recordRuntimeEvent(event)
+	s.recordRuntimeEvent(event, 0)
 	assertRuntime(capability.TetragonCapability, "unverified")
 	event.Source = "tetragon"
-	s.recordRuntimeEvent(event)
+	s.recordRuntimeEvent(event, 0)
 	value := assertRuntime(capability.ProcessExecCapability, "active")
 	if value.State != model.CapabilityLimited || value.VerifiedAt == nil {
 		t.Fatalf("passive state changed or active evidence time missing: %#v", value)
@@ -147,10 +147,10 @@ func TestRuntimeCapabilitiesRequireSelectedSourceEvidence(t *testing.T) {
 	assertRuntime(capability.ProcessLineageCapability, "unverified")
 	event.Process.ParentKey = "parent"
 	event.Process.LineageConfidence = model.LineageInferred
-	s.recordRuntimeEvent(event)
+	s.recordRuntimeEvent(event, 0)
 	assertRuntime(capability.ProcessLineageCapability, "unverified")
 	event.Process.LineageConfidence = model.LineageVerified
-	s.recordRuntimeEvent(event)
+	s.recordRuntimeEvent(event, 0)
 	assertRuntime(capability.ProcessLineageCapability, "active")
 	assertRuntime(capability.EBPFCapability, "active")
 	status, _ = s.Status(context.Background())
@@ -190,7 +190,7 @@ func TestRuntimeRefreshAndReturnedReportsAreIndependent(t *testing.T) {
 	defer store.Close()
 	defer shutdownService(t, s)
 	prepareRuntimeReport(s)
-	s.recordRuntimeEvent(model.Event{Type: "process.exec", Source: "audit", Process: model.Process{PID: 102, Exe: "/bin/sh"}})
+	s.recordRuntimeEvent(model.Event{Type: "process.exec", Source: "audit", Process: model.Process{PID: 102, Exe: "/bin/sh"}}, 0)
 	report, _ := s.Capabilities(context.Background())
 	value := report.Capabilities[capability.AuditCapability]
 	value.Details["probe"] = "modified"
@@ -222,7 +222,7 @@ func TestRuntimeCollectorFailureOverridesPriorSuccess(t *testing.T) {
 	selected := &runtimeTestCollector{health: collector.HealthSnapshot{Name: "tetragon-json", Running: true}}
 	setTestCollector(s, selected)
 	s.setRuntimeState(model.AgentModeActive, model.HealthHealthy, "tetragon-json", nil)
-	s.recordRuntimeEvent(model.Event{Type: "process.exec", Source: "tetragon", Process: model.Process{PID: 103, Exe: "/bin/sh"}})
+	s.recordRuntimeEvent(model.Event{Type: "process.exec", Source: "tetragon", Process: model.Process{PID: 103, Exe: "/bin/sh"}}, 0)
 	selected.mu.Lock()
 	selected.health.ParseErrors = 2
 	selected.health.EventsDropped = 3
@@ -234,6 +234,13 @@ func TestRuntimeCollectorFailureOverridesPriorSuccess(t *testing.T) {
 	}
 	if status.CapabilityReport.Capabilities[capability.TetragonCapability].RuntimeState != "error" {
 		t.Fatal("failed collector retained active capability")
+	}
+	selected.mu.Lock()
+	selected.health.LastError = ""
+	selected.mu.Unlock()
+	status, _ = s.Status(context.Background())
+	if status.Health != model.HealthHealthy || status.CollectorHealth.ParseErrors != 2 {
+		t.Fatal("historical parse errors must remain counted after health recovers")
 	}
 	s.setRuntimeState(model.AgentModeDegraded, model.HealthDegraded, "tetragon-json", errors.New("collector stream ended"))
 	selected.mu.Lock()

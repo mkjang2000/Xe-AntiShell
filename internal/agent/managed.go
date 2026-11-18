@@ -210,10 +210,16 @@ func (s *Service) deliverManagedBatch(ctx context.Context) (empty bool, err erro
 		return true, nil
 	}
 	ack, err := client.Ingest(ctx, batch)
-	if err != nil {
-		return false, err
+	if err == nil {
+		err = s.store.Acknowledge(ctx, ack, batch)
+		if err == nil && ack.Acknowledged < batch.Records[0].Sequence {
+			err = errors.New("central acknowledgement made no progress")
+		}
 	}
-	if err := s.store.Acknowledge(ctx, ack, batch); err != nil {
+	if err != nil {
+		if ctx.Err() == nil {
+			err = errors.Join(err, s.store.RecordDeliveryFailure(ctx, batch.SpoolID, time.Now()))
+		}
 		return false, err
 	}
 	s.managedContact()

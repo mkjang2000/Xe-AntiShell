@@ -47,21 +47,21 @@ func (e *Engine) evaluateExtended(event model.Event, lineage AncestorProvider) [
 func extendedRule(signals processSignals, root bool) (string, string) {
 	switch {
 	case signals.shell && root:
-		return "web-descendant-root-shell", "웹 출처에서 root 셸 실행 관측. 행위 확인 필요."
+		return ruleWebDescendantRootShell, "웹 출처에서 root 셸 실행 관측. 행위 확인 필요."
 	case signals.shell:
-		return "web-descendant-shell", "웹 출처에서 셸 실행 관측. 행위 확인 필요."
+		return ruleWebDescendantShell, "웹 출처에서 셸 실행 관측. 행위 확인 필요."
 	case signals.temporary:
-		return "web-descendant-temporary-executable", "웹 출처에서 임시 또는 메모리 경로의 실행 파일 실행 관측. 행위 확인 필요."
+		return ruleWebDescendantTemporaryExecutable, "웹 출처에서 임시 또는 메모리 경로의 실행 파일 실행 관측. 행위 확인 필요."
 	case signals.connection:
-		return "web-descendant-connection-tool", "웹 출처에서 연결 도구 실행 관측. 실제 연결 여부와 행위 확인 필요."
+		return ruleWebDescendantConnectionTool, "웹 출처에서 연결 도구 실행 관측. 실제 연결 여부와 행위 확인 필요."
 	case signals.inline:
-		return "web-descendant-inline-interpreter", "웹 출처에서 인터프리터의 인라인 코드 실행 옵션 관측. 행위 확인 필요."
+		return ruleWebDescendantInlineInterpreter, "웹 출처에서 인터프리터의 인라인 코드 실행 옵션 관측. 행위 확인 필요."
 	case signals.script:
-		return "web-descendant-temporary-script", "웹 출처에서 임시·메모리·파일 디스크립터 경로의 스크립트 실행 인자 관측. 실제 실행 여부와 행위 확인 필요."
+		return ruleWebDescendantTemporaryScript, "웹 출처에서 임시·메모리·파일 디스크립터 경로의 스크립트 실행 인자 관측. 실제 실행 여부와 행위 확인 필요."
 	case signals.download:
-		return "web-descendant-download-tool", "웹 출처에서 다운로드 도구 실행 관측. 전송 여부와 행위 확인 필요."
+		return ruleWebDescendantDownloadTool, "웹 출처에서 다운로드 도구 실행 관측. 전송 여부와 행위 확인 필요."
 	case signals.recon:
-		return "web-descendant-recon-tool", "웹 출처에서 시스템 진단 도구 실행 관측. 행위 확인 필요."
+		return ruleWebDescendantReconTool, "웹 출처에서 시스템 진단 도구 실행 관측. 행위 확인 필요."
 	default:
 		return "", ""
 	}

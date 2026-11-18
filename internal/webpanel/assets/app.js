@@ -40,6 +40,7 @@ function render() {
   const {status, capabilities} = state.data;
   const platform = capabilities.platform || {};
   text("hostSubtitle", `${platform.hostname || "서버 미확인"} · ${platform.pretty_name || "운영체제 미확인"}`);
+  renderRuleCatalog();
   renderOperatorOverview(state.data);renderSystem(platform, capabilities, status);
   renderResources(state.data.resources);renderManagedStatus(state.data.managed);
 }
@@ -53,7 +54,9 @@ function renderSystem(platform, capabilities, status) {
   const details = recordDetails([["CPU 아키텍처", platform.architecture], ["커널 버전", platform.kernel_release], ["부팅 식별자", platform.boot_id], ["수집기 식별자", status.collector], ["마지막 오류 원문", status.last_error]]);
   details.open = expanded;details.children[0].textContent = "기술 정보";byId("systemTechnical").replaceChildren(details);
   if (focused) details.children[0].focus({preventScroll:true});
-  renderCapabilities(capabilities.capabilities || {});
+  const {"storage.capacity": capacity, ...otherCapabilities} = capabilities.capabilities || {};
+  renderCapacity(status.capability_report?.capabilities?.["storage.capacity"] || capacity, state.data?.managed?.enrolled);
+  renderCapabilities(otherCapabilities);
 }
 async function showProcessTree(pid) {
   const dialog = byId("processDialog");text("dialogTitle", `프로세스 실행 경로 · PID ${pid}`);
@@ -90,6 +93,12 @@ async function loadServices() {
   } catch (error) {text("servicesEmpty", "서비스별 이력을 불러오지 못했습니다. 새로고침 후 다시 확인하세요.");byId("servicesEmpty").classList.remove("hidden");}
 }
 function updateServiceSelectors() {
+  byId("observationServices").replaceChildren(...state.services.filter(service => service.name).map(service => {
+    const option = document.createElement("option");
+    option.value = service.name;
+    option.textContent = serviceLabel(service.name);
+    return option;
+  }));
   for (const kind of ["findings", "events"]) {
     const select = byId(`${kind}Service`), selected = select.value, all = document.createElement("option");all.value = "";all.textContent = "모든 서비스";const options = [all];
     for (const service of state.services) {if (!service.name) continue;const option = document.createElement("option");option.value = service.name;option.textContent = serviceLabel(service.name);options.push(option);}
@@ -107,6 +116,8 @@ for (const [index, name] of viewNames.entries()) {
     if (next) {event.preventDefault();activateView(next, true);}
   });
 }
+initObservations();
+byId("ruleSearch").addEventListener("input", renderRuleCatalog);
 byId("allFindingsButton").addEventListener("click", () => openFindingService(""));
 byId("refreshButton").addEventListener("click", () => {loadOverview();loadServices();if (historyViews[state.activeView]) historyViews[state.activeView].load();});
 byId("dialogClose").addEventListener("click", () => byId("processDialog").close());
