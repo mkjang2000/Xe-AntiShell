@@ -69,30 +69,34 @@ func (d *DetectionPolicy) UnmarshalJSON(data []byte) error {
 	type policyFields DetectionPolicy
 	var decoded struct {
 		policyFields
-		Scopes serviceObservationField `json:"service_observations"`
+		Scopes   optionalPolicyList[ServiceObservationPolicy] `json:"service_observations"`
+		Controls optionalPolicyList[ServiceRuleControl]       `json:"service_rule_controls"`
 	}
 	if err := DecodeStrict(data, MaxPolicyBytes, &decoded); err != nil {
 		return err
 	}
 	*d = DetectionPolicy(decoded.policyFields)
 	d.ServiceObservations = decoded.Scopes.list
+	if decoded.Controls.list != nil {
+		d.ServiceRuleControls = *decoded.Controls.list
+	}
 	return nil
 }
 
-type serviceObservationField struct {
-	list *[]ServiceObservationPolicy
+type optionalPolicyList[T any] struct {
+	list *[]T
 }
 
-func (f *serviceObservationField) UnmarshalJSON(data []byte) error {
+func (f *optionalPolicyList[T]) UnmarshalJSON(data []byte) error {
 	if f.list != nil {
-		return errors.New("duplicate service_observations field")
+		return errors.New("duplicate detection policy list")
 	}
-	var list []ServiceObservationPolicy
+	var list []T
 	if err := DecodeStrict(data, MaxPolicyBytes, &list); err != nil {
 		return err
 	}
 	if list == nil {
-		return errors.New("service_observations must be a JSON array")
+		return errors.New("detection policy list must be a JSON array")
 	}
 	f.list = &list
 	return nil

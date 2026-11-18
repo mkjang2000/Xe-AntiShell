@@ -27,14 +27,15 @@ type Policy struct {
 // DetectionPolicy omits a false ExtendedProcessRules value to preserve the signed
 // bytes of policies issued before extended process rules were introduced.
 type DetectionPolicy struct {
-	Enabled              bool     `json:"enabled"`
-	ExtendedProcessRules bool     `json:"extended_process_rules,omitempty" yaml:"extended_process_rules,omitempty"`
-	PrivilegeRules       bool     `json:"privilege_rules,omitempty" yaml:"privilege_rules,omitempty"`
-	RootExecAlerts       string   `json:"root_exec_alerts,omitempty" yaml:"root_exec_alerts,omitempty"`
-	WebExecutables       []string `json:"web_executables"`
-	WebServices          []string `json:"web_services"`
-	Shells               []string `json:"shells"`
-	AllowedPairs         []string `json:"allowed_pairs"`
+	Enabled              bool                 `json:"enabled"`
+	ExtendedProcessRules bool                 `json:"extended_process_rules,omitempty" yaml:"extended_process_rules,omitempty"`
+	PrivilegeRules       bool                 `json:"privilege_rules,omitempty" yaml:"privilege_rules,omitempty"`
+	RootExecAlerts       string               `json:"root_exec_alerts,omitempty" yaml:"root_exec_alerts,omitempty"`
+	WebExecutables       []string             `json:"web_executables"`
+	WebServices          []string             `json:"web_services"`
+	Shells               []string             `json:"shells"`
+	AllowedPairs         []string             `json:"allowed_pairs"`
+	ServiceRuleControls  []ServiceRuleControl `json:"service_rule_controls,omitempty" yaml:"service_rule_controls,omitempty"`
 	// Omitted inherits the host configuration. A present list replaces it in full.
 	ServiceObservations *[]ServiceObservationPolicy `json:"service_observations,omitempty" yaml:"service_observations,omitempty"`
 }
@@ -79,6 +80,9 @@ func (p Policy) Validate() error {
 		return fmt.Errorf("web services: %w", err)
 	}
 	if err := validateSignedServiceObservations(p.Detection.ServiceObservations); err != nil {
+		return err
+	}
+	if err := ValidateServiceRuleControls(p.Detection.ServiceRuleControls); err != nil {
 		return err
 	}
 	if len(p.Detection.AllowedPairs) > 512 {
