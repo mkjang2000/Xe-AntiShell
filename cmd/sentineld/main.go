@@ -51,6 +51,10 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	cfg.SourceFile, err = filepath.Abs(*configPath)
+	if err != nil {
+		return fmt.Errorf("resolve configuration path: %w", err)
+	}
 	if *dataDir != "" {
 		if !filepath.IsAbs(*dataDir) || filepath.Clean(*dataDir) == string(filepath.Separator) {
 			return errors.New("--data-dir must be an absolute non-root path")

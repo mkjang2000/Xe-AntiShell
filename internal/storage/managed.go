@@ -200,6 +200,18 @@ func (s *Store) SavePolicy(ctx context.Context, policy managed.SignedPolicy) err
 	}
 	return tx.Commit()
 }
+
+// StoredPolicyBytes reads the exact committed envelope, including any later
+// changes to its encoding. Oversized values stay inside SQLite.
+func (s *Store) StoredPolicyBytes(ctx context.Context) (raw []byte, oversized bool, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT CASE WHEN length(CAST(signed_json AS BLOB))<=? THEN signed_json END,
+     length(CAST(signed_json AS BLOB))>? FROM managed_policy WHERE singleton=1`, managed.MaxPolicyBytes, managed.MaxPolicyBytes).Scan(&raw, &oversized)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrNotFound
+	}
+	return
+}
+
 func (s *Store) Policy(ctx context.Context) (managed.SignedPolicy, error) {
 	var raw []byte
 	err := s.db.QueryRowContext(ctx, "SELECT signed_json FROM managed_policy WHERE singleton=1").Scan(&raw)

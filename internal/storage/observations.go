@@ -70,7 +70,7 @@ func (s *Store) PersistObservationWithHistory(ctx context.Context, event model.E
 	}
 	defer tx.Rollback()
 	child := &Store{db: s.db, tx: tx}
-	inserted, eventJSON, err := child.saveEventResult(ctx, event, compact)
+	inserted, eventJSON, err := child.saveEventResult(ctx, event, compact, true)
 	if err != nil {
 		return false, err
 	}
@@ -90,9 +90,10 @@ func (s *Store) PersistObservationWithHistory(ctx context.Context, event model.E
 			}
 		}
 	}
-	// File and TCP decisions belong to the first accepted observation. A
-	// retry after a scope change must agree with the already queued bundle.
-	if !inserted && (event.Type == "file.write" || event.Type == "network.connect") {
+	// Keep the original verdict and its immutable delivery obligation, including
+	// when a rule or its temporary exception has changed since first receipt.
+	firstEvaluation := eventJSON != nil
+	if !firstEvaluation {
 		findings = nil
 	}
 	for _, finding := range findings {
@@ -100,7 +101,7 @@ func (s *Store) PersistObservationWithHistory(ctx context.Context, event model.E
 			return false, err
 		}
 	}
-	if inserted {
+	if firstEvaluation {
 		var enabled int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM managed_state").Scan(&enabled); err != nil {
 			return false, err

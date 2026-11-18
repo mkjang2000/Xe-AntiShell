@@ -105,12 +105,17 @@ func (s *Service) runtimeSnapshotFor(policy *detectionState) (model.AgentStatus,
 	if report.Capabilities == nil {
 		report.Capabilities = make(map[string]model.Capability)
 	}
+	addFileIntegrityCapability(&report)
 	report.Capabilities[response.CapabilityName] = response.Capability(s.config.Response.AllowTerminate)
 	report.Capabilities[serviceObservationCapability] = model.Capability{
 		Name: serviceObservationCapability, Provider: "local-detector", State: model.CapabilitySupported,
 		Implementation: "implemented", RuntimeState: "available", Reason: "서비스별 파일·TCP 서명 정책 지원",
 		RuntimeReason: "파일·TCP 센서의 최근 수신은 해당 관측 항목에 표시됩니다.",
 		Details:       map[string]string{"contract": "1", "scope_source": policy.serviceObservationSource()},
+	}
+	report.Capabilities["detection.service_rule_controls"] = model.Capability{
+		Name: "detection.service_rule_controls", Provider: "local-detector", State: model.CapabilitySupported, Implementation: "implemented", RuntimeState: "available",
+		Reason: "서비스별 규칙·만료 예외 지원", Details: map[string]string{"contract": "1"},
 	}
 	s.applyPrivilegeCapabilities(&status, &report, evidence, policy.privilegeEnabled())
 	status.CapabilityReport = &report

@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -195,5 +198,145 @@ func TestServiceObservationScopesRestoredAtStartup(t *testing.T) {
 	shutdownService(t, svc)
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestServiceRuleExceptionExpiresAcrossOfflineRestartAndReplay(t *testing.T) {
+	ctx := context.Background()
+	c := newEnrollmentCentralFixture(t)
+	cfg, store, prober := newTestDependencies(t, config.CollectorDisabled, shopObservationScope)
+	svc, err := NewWithProcessSource(cfg, store, prober, staticProcessSource{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.EnrollWithRecovery(ctx, c.server.URL, "agent-test", c.caPEM, "test-token", enrollmentRecoveryCode(t)); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.ManagedState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	end := now.Add(time.Minute)
+	p := managed.DefaultPolicy(state.AgentID, state.EnrollmentID, 1, now)
+	p.Detection.WebServices = []string{observationService}
+	p.Detection.ServiceRuleControls = []managed.ServiceRuleControl{{Service: observationService, RuleID: managed.RuleWebDescendantShell, Mode: "suppress_until", Reason: "approved service update", ExpiresAt: &end}}
+	signed, err := managed.SignPolicy(p, state.PolicyKeyID, c.policyKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.applyManagedPolicy(ctx, signed, state, now, false); err != nil {
+		t.Fatal(err)
+	}
+	sample := model.Event{ID: "before", SourceEventID: "source-before", Type: "process.exec", Source: "replay", EventTime: now, IngestTime: now, BootID: "boot-test", HostID: state.AgentID, Process: model.Process{PID: 454, Exe: "/bin/sh", UID: 1000, EUID: 1000, OriginService: observationService, StartTime: now, ExecID: "sample"}}
+	send := func(e model.Event, at time.Time) {
+		t.Helper()
+		if err := svc.processObservation(ctx, &e, 0, time.Time{}, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(sample, end.Add(-time.Nanosecond))
+	c.server.Close()
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = storage.Open(ctx, cfg.Agent.DatabasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc, err = NewWithProcessSource(cfg, store, prober, staticProcessSource{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startService(t, svc)
+	defer shutdownService(t, svc)
+	send(sample, end)
+	other := sample
+	other.ID = "after"
+	other.SourceEventID = "source-after"
+	send(other, end)
+	findings, err := store.ListFindings(ctx, storage.FindingFilter{Limit: 5})
+	if err != nil || len(findings) != 1 || findings[0].EvidenceEventIDs[0] != "after" || findings[0].PolicyRevision != 1 {
+		t.Fatalf("offline expiry or historical replay changed findings: %+v %v", findings, err)
+	}
+	batch, err := store.DeliveryBatch(ctx, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, r := range batch.Records {
+		if r.Kind == managed.RecordKindEventBundle {
+			var b managed.EventBundle
+			if err := json.Unmarshal(r.Payload, &b); err != nil {
+				t.Fatal(err)
+			}
+			counts[r.ID] = len(b.Findings)
+		}
+	}
+	if len(counts) != 2 || counts["before"] != 0 || counts["after"] != 1 {
+		t.Fatalf("first delivery verdicts changed: %v", counts)
+	}
+}
+
+func TestServiceRuleExceptionsRequireDirectAttributionThroughReplay(t *testing.T) {
+	ctx := context.Background()
+	s, store := newTestService(t, config.CollectorDisabled, func(cfg *config.Config) {
+		shopObservationScope(cfg)
+		cfg.Detection.ServiceRuleControls = []managed.ServiceRuleControl{
+			{Service: observationService, RuleID: managed.RuleWebDescendantShell, Mode: "disabled"},
+			{Service: observationService, RuleID: protectedWriteRule, Mode: "disabled"},
+		}
+	})
+	defer store.Close()
+	s.status.Collector = "tetragon-json"
+	start := time.Now().UTC().Add(-time.Minute)
+	parent := model.Process{Key: "ancestor", PID: 450, Exe: "/usr/sbin/nginx", OriginService: observationService, StartTime: start}
+	worker := model.Process{Key: "known", PID: 841, Exe: sampleProbeExecutable, OriginService: observationService, StartTime: start}
+	s.lineage.Restore([]model.Process{parent, worker})
+	value := int64(8)
+	write := sampleProbe{identity: "inferred", pid: 841, start: start, at: start.Add(time.Second), path: "/srv/shop/file", result: &value}.normalize(t, start.Add(2*time.Second))
+	shell := model.Event{ID: "inferred-shell", Type: "process.exec", Source: "replay", BootID: "boot-test", EventTime: start.Add(time.Second), Process: model.Process{PID: 455, PPID: 450, ParentKey: parent.Key, Exe: "/bin/sh", UID: 1000, EUID: 1000, StartTime: start.Add(time.Second)}}
+	for _, e := range []model.Event{shell, write} {
+		if err := s.processEvent(ctx, &e); err != nil {
+			t.Fatal(err)
+		}
+		stored, err := store.GetEvent(ctx, e.ID)
+		if err != nil || stored.Process.OriginService != observationService || !slices.Contains(stored.MissingFields, model.DirectServiceEvidence) {
+			t.Fatalf("missing attribution evidence: %+v %v", stored, err)
+		}
+		sample, err := json.Marshal(stored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmp, err := CompareRulesAt(ctx, s.config, s.config, bytes.NewReader(sample), start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id := protectedWriteRule
+		if e.Type == "process.exec" {
+			id = managed.RuleWebDescendantShell
+		}
+		for _, r := range cmp.Rules {
+			if r.ID == id && (r.Current != 1 || r.Candidate != 1) {
+				t.Fatalf("exported inferred %s incorrectly suppressed: %+v", id, r)
+			}
+		}
+	}
+	s.processSource = staticProcessSource{origin: observationService}
+	shell.ID = "direct-shell"
+	shell.Process.PID++
+	write = sampleProbe{identity: "inferred", pid: 841, start: start, at: start.Add(4 * time.Second), path: "/srv/shop/direct", result: &value}.normalize(t, start.Add(5*time.Second))
+	for _, e := range []model.Event{shell, write} {
+		if err := s.processEvent(ctx, &e); err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(e.MissingFields, model.DirectServiceEvidence) {
+			t.Fatal("direct attribution was lost")
+		}
+	}
+	got, err := store.ListFindings(ctx, storage.FindingFilter{Limit: 10})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("want two inferred findings; got %+v, %v", got, err)
 	}
 }

@@ -335,6 +335,36 @@ The path settings apply to this query. TCP results distinguish initiation,
 failure and an unknown return. The sample view produces no findings or response
 actions.
 
+### Service-specific rule controls
+
+Set `detection.service_rule_controls` in standalone YAML or in a supported
+signed policy. Each entry selects one exact service and built-in rule ID.
+For example, an approved exception for a deployment can use the following
+entry under `detection`.
+
+```yaml
+service_rule_controls:
+  - service: example-web.service
+    rule_id: service-protected-file-write
+    mode: suppress_until
+    reason: Approved application deployment
+    expires_at: 2030-01-01T00:00:00Z
+```
+
+The other modes are `enabled` and `disabled` within the active profile.
+`sentinel rules` shows the configured controls. Use `sentinel rules compare
+--at <RFC3339 timestamp>` for a repeatable expiry comparison.
+[Rule policy semantics](devdocs/plans/service-rule-controls.md)
+
+For a Central staged policy rollout, download the comparison input for each host
+and use that host's configuration with the same anonymized single-host, single-boot
+JSONL sample. The exported input fixes the evaluation time and both policy revisions.
+The command produces JSON with rule counts and input digests for the Central console.
+
+```bash
+sentinel rules compare --managed-input policy-impact.json --host-config host.yaml --events sample.jsonl > impact-report.json
+```
+
 ### Service-scoped file and TCP alerts
 
 The following host YAML fragment enables detection-only findings for one

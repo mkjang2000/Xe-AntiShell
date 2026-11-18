@@ -17,11 +17,12 @@ func (s *Service) Rules(ctx context.Context) (model.RuleCatalog, error) {
 		return model.RuleCatalog{}, errors.New("detector policy unavailable")
 	}
 	status, report := s.runtimeSnapshotFor(state)
-	catalog := model.RuleCatalog{PolicySource: "local", ServiceObservationSource: state.serviceObservationSource(), Collector: status.Collector, Rules: state.engine.Rules(state.enabled)}
+	at := time.Now().UTC()
+	catalog := model.RuleCatalog{EvaluatedAt: at, PolicySource: "local", ServiceObservationSource: state.serviceObservationSource(), Collector: status.Collector, Rules: state.engine.RulesAt(state.enabled, at)}
 	mode := "observe"
 	if policy := state.policy; policy != nil {
 		catalog.PolicySource, catalog.PolicyRevision = "managed", policy.Revision
-		if time.Now().Before(policy.ExpiresAt) {
+		if at.Before(policy.ExpiresAt) {
 			switch policy.Response.Mode {
 			case "would_block":
 				mode = "would_block"

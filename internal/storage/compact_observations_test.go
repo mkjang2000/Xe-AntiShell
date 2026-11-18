@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -86,5 +87,74 @@ func TestCompactHistoryPreservesFindingEvidenceAndLegacyRetry(t *testing.T) {
 	got, err := s.GetFinding(ctx, finding.ID)
 	if err != nil || got.RuleID != finding.RuleID || got.RiskScore != 75 || len(got.EvidenceEventIDs) != 1 {
 		t.Fatalf("finding lost structured evidence: %+v %v", got, err)
+	}
+}
+
+func TestEvidenceOnlyFirstDecisionIsAtomicAndDeliveredOnce(t *testing.T) {
+	for _, mode := range []string{"standalone", "managed"} {
+		for _, compact := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/compact=%v", mode, compact), func(t *testing.T) {
+				ctx := context.Background()
+				s, _ := openTestStore(t)
+				if mode == "managed" {
+					if err := s.SaveManagedState(ctx, ManagedState{AgentID: "agent", EnrollmentID: "enrollment", KeyPEM: "test"}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				e := sourceEventWithAncestors()
+				e.RawJSON = json.RawMessage(`{"raw":"source"}`)
+				if err := s.SaveEvent(ctx, e); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.SaveEvent(ctx, e); err != nil {
+					t.Fatal(err)
+				}
+				var pending bool
+				if err := s.db.QueryRowContext(ctx, "SELECT evidence_digest IS X'' FROM events WHERE event_id=?", e.ID).Scan(&pending); err != nil || !pending {
+					t.Fatalf("unmarked input: %t %v", pending, err)
+				}
+				f := managedTestFinding(e)
+				// A failed finding insert must leave the first evaluation available.
+				invalid := f
+				invalid.ID = ""
+				if _, err := s.PersistObservationWithHistory(ctx, e, []model.Finding{invalid}, compact); err == nil {
+					t.Fatal("invalid finding accepted")
+				}
+				for attempt := 0; attempt < 2; attempt++ {
+					verdict := []model.Finding{f}
+					if attempt > 0 {
+						verdict = nil
+					}
+					if inserted, err := s.PersistObservationWithHistory(ctx, e, verdict, compact); err != nil || inserted {
+						t.Fatalf("evaluation %d: %t, %v", attempt, inserted, err)
+					}
+				}
+				if _, err := s.GetFinding(ctx, f.ID); err != nil {
+					t.Fatal(err)
+				}
+				var marker string
+				if err := s.db.QueryRowContext(ctx, `SELECT CASE WHEN evidence_digest IS NULL THEN 'full' WHEN length(evidence_digest)=32 THEN 'compact' ELSE 'pending' END FROM events WHERE event_id=?`, e.ID).Scan(&marker); err != nil || marker != "full" && !compact || marker != "compact" && compact {
+					t.Fatalf("unexpected decision marker %q, %v", marker, err)
+				}
+				var bundles int
+				if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM delivery_outbox WHERE kind=?", managed.RecordKindEventBundle).Scan(&bundles); err != nil {
+					t.Fatal(err)
+				}
+				if mode == "standalone" {
+					if bundles != 0 {
+						t.Fatal("standalone evidence enqueued")
+					}
+					return
+				}
+				batch, err := s.DeliveryBatch(ctx, 4)
+				if err != nil || bundles != 1 || len(batch.Records) != 1 {
+					t.Fatalf("bundle count %d, %v %v", bundles, batch, err)
+				}
+				var wire managed.EventBundle
+				if err := json.Unmarshal(batch.Records[0].Payload, &wire); err != nil || len(wire.Findings) != 1 || wire.Findings[0].ID != f.ID || (len(wire.Event.RawJSON) == 0) != compact {
+					t.Fatalf("bad first bundle %+v, %v", wire, err)
+				}
+			})
+		}
 	}
 }

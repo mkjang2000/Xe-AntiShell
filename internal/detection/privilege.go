@@ -66,7 +66,7 @@ func evidenceFieldAvailableExcept(event model.Event, field, ignoreMissing string
 	return true
 }
 
-func (e *Engine) evaluatePrivilege(event model.Event, lineage AncestorProvider) []model.Finding {
+func (e *Engine) evaluatePrivilege(event model.Event, lineage AncestorProvider, r ruleDecision) []model.Finding {
 	if !e.privilegeRules {
 		return nil
 	}
@@ -74,7 +74,7 @@ func (e *Engine) evaluatePrivilege(event model.Event, lineage AncestorProvider) 
 	case "process.exec":
 		return e.evaluateRootExecution(event, lineage)
 	case "process.credential_change":
-		return e.evaluateCredentials(event, lineage)
+		return e.evaluateCredentials(event, lineage, r)
 	default:
 		return nil
 	}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,14 +38,16 @@ func (s *Store) SaveEvent(ctx context.Context, event model.Event) error {
 // stable source event returns inserted=false; reuse of an ID for different
 // source content returns ErrConflict.
 func (s *Store) SaveEventResult(ctx context.Context, event model.Event) (bool, error) {
-	inserted, _, err := s.saveEventResult(ctx, event, false)
+	inserted, _, err := s.saveEventResult(ctx, event, false, false)
 	return inserted, err
 }
 
-// saveEventResult returns the freshly encoded event for use by this observation's
-// outbox bundle. Every call validates and encodes current values; no caller-owned
-// object or encoded evidence is cached between calls.
-func (s *Store) saveEventResult(ctx context.Context, event model.Event, compact bool) (bool, json.RawMessage, error) {
+// A non-nil body is the first accepted encoding or an evidence-only row's
+// first evaluation. A completed retry returns no body to enqueue.
+// The empty BLOB marks evidence saved without a detector. A full committed row
+// uses NULL, and a compact committed row carries its SHA-256. Older agents read
+// an empty digest as a full event and can continue to use the same schema.
+func (s *Store) saveEventResult(ctx context.Context, event model.Event, compact, evaluated bool) (bool, json.RawMessage, error) {
 	if event.ID == "" {
 		return false, nil, errors.New("storage: event ID is required")
 	}
@@ -80,12 +83,12 @@ INSERT INTO events(
     event_id, schema_version, host_id, boot_id, stream_id, sequence,
     event_time_ns, ingest_time_ns, event_type, source, source_event_id,
     completeness, process_key, event_json, evidence_digest
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN ? ELSE X'' END)
 ON CONFLICT(event_id) DO NOTHING`,
 		event.ID, event.SchemaVersion, event.HostID, event.BootID, event.StreamID,
 		int64(event.Sequence), event.EventTime.UnixNano(), event.IngestTime.UnixNano(),
 		event.Type, event.Source, event.SourceEventID, string(event.Completeness),
-		event.Process.Key, body, digest,
+		event.Process.Key, body, evaluated, digest,
 	)
 	if err != nil {
 		return false, nil, fmt.Errorf("storage: insert event %q: %w", event.ID, err)
@@ -102,7 +105,8 @@ ON CONFLICT(event_id) DO NOTHING`,
 	}
 
 	var existing, existingDigest []byte
-	if err := s.executor().QueryRowContext(ctx, `SELECT event_json, evidence_digest FROM events WHERE event_id = ?`, event.ID).Scan(&existing, &existingDigest); err != nil {
+	var pending bool
+	if err := s.executor().QueryRowContext(ctx, `SELECT event_json, evidence_digest, evidence_digest IS X'' FROM events WHERE event_id = ?`, event.ID).Scan(&existing, &existingDigest, &pending); err != nil {
 		return false, nil, fmt.Errorf("storage: read duplicate event %q: %w", event.ID, err)
 	}
 	if len(existingDigest) != 0 {
@@ -114,22 +118,32 @@ ON CONFLICT(event_id) DO NOTHING`,
 			}
 		}
 		if bytes.Equal(existingDigest, digest) {
-			return false, existing, nil
+			return false, nil, nil
 		}
 	} else {
+		fullBody := body
 		if compact {
-			var err error
-			body, err = json.Marshal(event)
+			fullBody, err = json.Marshal(event)
 			if err != nil {
 				return false, nil, err
 			}
 		}
-		if bytes.Equal(existing, body) {
-			return false, existing, nil
+		matched := bytes.Equal(existing, fullBody)
+		if !matched {
+			previous, err := decodeEvent(existing)
+			matched = err == nil && sameSourceEvent(previous, event)
 		}
-		existingEvent, decodeErr := decodeEvent(existing)
-		if decodeErr == nil && sameSourceEvent(existingEvent, event) {
-			return false, existing, nil
+		if matched {
+			if !pending || !evaluated {
+				return false, nil, nil
+			}
+			// The preceding insert takes the transaction's SQLite write lock.
+			// Commit the exact encoding that will be enqueued with its verdict.
+			_, err = s.executor().ExecContext(ctx, `UPDATE events SET event_json=?,evidence_digest=? WHERE event_id=? AND evidence_digest=X''`, body, digest, event.ID)
+			if err != nil {
+				return false, nil, err
+			}
+			return false, body, nil
 		}
 	}
 	return false, nil, fmt.Errorf("%w: event ID %q", ErrConflict, event.ID)
@@ -145,6 +159,10 @@ func sameSourceEvent(left, right model.Event) bool {
 }
 
 func comparableSourceEvent(event model.Event) model.Event {
+	// Local service attribution may improve between deliveries of one source observation.
+	if slices.Contains(event.MissingFields, model.DirectServiceEvidence) {
+		event.MissingFields = slices.DeleteFunc(slices.Clone(event.MissingFields), func(field string) bool { return field == model.DirectServiceEvidence })
+	}
 	event.Sequence = 0
 	event.IngestTime = time.Time{}
 	event.Process.FirstSeen, event.Process.LastSeen = time.Time{}, time.Time{}

@@ -19,10 +19,15 @@ func isOperationEvent(kind string) bool {
 	return kind == "process.credential_change" || kind == "process.exec_observation" || kind == "file.write" || kind == "network.connect"
 }
 
+func compatibleOperationOwner(current, source model.Process) bool {
+	return current.Exe == source.Exe && !current.StartTime.After(source.StartTime) && (current.ExecID == "" || current.ExecID == source.ExecID)
+}
+
 // A source context snapshot can enrich an execution, but cannot resurrect it or
 // assign a delayed operation to the current unrelated owner of the same PID.
 func (s *Service) observeOperationContext(ctx context.Context, event *model.Event) error {
-	observe := func(source model.Process) (model.Process, error) {
+	observe := func(source model.Process, target bool) (model.Process, error) {
+		directService := source.OriginService
 		if source.Key == "" {
 			source.Key = identity.ProcessKey(event.BootID, source, event.EventTime)
 		}
@@ -36,14 +41,16 @@ func (s *Service) observeOperationContext(ctx context.Context, event *model.Even
 		}
 		if source.OriginService == "" {
 			current, ok := s.lineage.CurrentByPID(source.PID)
-			compatible := ok && current.Exe == source.Exe && !current.StartTime.After(source.StartTime) &&
-				(current.ExecID == "" || current.ExecID == source.ExecID)
+			compatible := ok && compatibleOperationOwner(current, source)
 			if compatible {
 				// Bootstrap has procfs identities rather than Tetragon exec IDs.
 				// Adopt only attribution, and never borrow a newer PID owner's service.
 				source.OriginService = current.OriginService
-				if source.OriginService == "" {
-					source.OriginService, _ = s.processSource.OriginService(ctx, source.PID)
+				if current.ExitedAt == nil && (target || source.OriginService == "") {
+					directService, _ = s.processSource.OriginService(ctx, source.PID)
+					if directService != "" {
+						source.OriginService = directService
+					}
 				}
 			}
 		}
@@ -55,18 +62,21 @@ func (s *Service) observeOperationContext(ctx context.Context, event *model.Even
 		if source.OriginService == "" {
 			source.OriginService = tracked.OriginService
 		}
+		if target && source.OriginService != "" && directService == "" {
+			event.MissingFields = appendUnique(event.MissingFields, model.DirectServiceEvidence)
+		}
 		source.Complete = tracked.Complete
 		source.LineageConfidence = tracked.LineageConfidence
 		return source, nil
 	}
 	for index := len(event.Ancestors) - 1; index >= 0; index-- {
-		value, err := observe(event.Ancestors[index])
+		value, err := observe(event.Ancestors[index], false)
 		if err != nil {
 			return err
 		}
 		event.Ancestors[index] = value
 	}
-	value, err := observe(event.Process)
+	value, err := observe(event.Process, true)
 	if err != nil {
 		return err
 	}

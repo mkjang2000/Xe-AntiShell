@@ -3,8 +3,10 @@ package detection
 
 import (
 	"fmt"
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"xe-antishell/internal/config"
 	"xe-antishell/internal/identity"
@@ -17,6 +19,7 @@ type AncestorProvider interface {
 }
 
 type Engine struct {
+	ruleControls         map[string]map[string]managed.ServiceRuleControl
 	serviceObservations  map[string]config.ServiceObservationPolicy
 	webExecutables       map[string]struct{}
 	webServices          map[string]struct{}
@@ -31,6 +34,7 @@ type Engine struct {
 // Options configures an immutable detector snapshot. ExtendedProcessRules is
 // opt-in so existing local and signed policies retain their shell-only behavior.
 type Options struct {
+	ServiceRuleControls  []managed.ServiceRuleControl
 	ServiceObservations  []config.ServiceObservationPolicy
 	WebExecutables       []string
 	WebServices          []string
@@ -45,6 +49,7 @@ type Options struct {
 func NewWithOptions(options Options) *Engine {
 	engine := NewWithServices(options.WebExecutables, options.WebServices, options.Shells, options.AllowedPairs)
 	engine.serviceObservations = compileServiceObservations(options)
+	engine.ruleControls = compileRuleControls(options.ServiceRuleControls)
 	engine.extendedProcessRules = options.ExtendedProcessRules
 	engine.privilegeRules = options.PrivilegeRules
 	engine.rootExecAlerts = options.RootExecAlerts
@@ -104,27 +109,36 @@ func processName(process model.Process) string {
 }
 
 func (e *Engine) Evaluate(event model.Event, lineage AncestorProvider) []model.Finding {
-	if event.Type == "file.write" || event.Type == "network.connect" {
-		return e.evaluateServiceObservation(event)
+	return e.EvaluateAt(event, lineage, time.Now())
+}
+
+// EvaluateAt uses the local policy-evaluation clock, independent of source time.
+func (e *Engine) EvaluateAt(event model.Event, lineage AncestorProvider, at time.Time) []model.Finding {
+	r := ruleDecision{at: at}
+	if controls := e.ruleControls[event.Process.OriginService]; len(controls) > 0 && evidenceFieldAvailable(event, "process.origin_service") && evidenceFieldAvailable(event, model.DirectServiceEvidence) {
+		r.controls = controls
 	}
-	findings := e.evaluateWeb(event, lineage)
+	if event.Type == "file.write" || event.Type == "network.connect" {
+		return r.filter(e.evaluateServiceObservation(event))
+	}
+	findings := r.filter(e.evaluateWeb(event, lineage, r))
 	// Existing web findings already report this execution; retain one primary
 	// finding instead of duplicating the same root exec in the global profile.
 	if len(findings) > 0 && event.Type == "process.exec" {
 		return findings
 	}
-	return append(findings, e.evaluatePrivilege(event, lineage)...)
+	return append(findings, r.filter(e.evaluatePrivilege(event, lineage, r))...)
 }
 
-func (e *Engine) evaluateWeb(event model.Event, lineage AncestorProvider) []model.Finding {
+func (e *Engine) evaluateWeb(event model.Event, lineage AncestorProvider, r ruleDecision) []model.Finding {
 	if event.Type == "process.exec_observation" && e.extendedProcessRules {
-		return e.evaluateExtended(event, lineage)
+		return e.evaluateExtended(event, lineage, r)
 	}
 	if event.Type != "process.exec" {
 		return nil
 	}
 	if e.extendedProcessRules {
-		return e.evaluateExtended(event, lineage)
+		return e.evaluateExtended(event, lineage, r)
 	}
 	if _, shell := e.shells[processName(event.Process)]; !shell {
 		return nil

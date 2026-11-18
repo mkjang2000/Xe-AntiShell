@@ -1,6 +1,6 @@
 Name:           xe-antishell
 Version:        0.1.0
-Release:        35%{?dist}
+Release:        36%{?dist}
 Summary:        Standalone Linux host security monitoring agent
 License:        MIT AND Apache-2.0 AND BSD-3-Clause AND BSD-2-Clause AND BSD-1-Clause AND SunPro
 URL:            https://github.com/mkjang2000/Xe-AntiShell
@@ -71,6 +71,11 @@ fi
 %systemd_postun_with_restart sentinel-web.service
 
 %changelog
+* Thu Nov 19 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-36
+- Apply signed rule controls and expiring exceptions per service
+- Measure approved agent files and policy in a bounded background worker
+- Compare managed policy candidates against a local observation sample
+
 * Wed Nov 18 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-35
 - Apply signed service observation scopes and report the effective scope source
 

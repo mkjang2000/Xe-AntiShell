@@ -8,6 +8,7 @@ const capabilityNames = {
   "collector.tetragon": "실시간 수집기",
   "collector.audit": "보조 수집기",
   "host.platform": "운영체제 정보",
+  "integrity.agent_files": "에이전트 파일 무결성 측정",
   "integrity.ima": "파일 측정 정보",
   "integrity.tpm": "서버 보안칩",
   "kernel.btf": "실행 수집 보조 정보",
@@ -17,6 +18,7 @@ const capabilityNames = {
   "observation.network": "TCP 연결 요청 관측",
   "observation.credential_change": "권한 변경 전·후 관측",
   "detection.privilege_rules": "전역 root·권한 변경 탐지 규칙",
+  "detection.service_rule_controls": "서비스별 규칙 제어와 만료 예외",
   "detection.service_observations": "서비스별 파일·TCP 중앙 정책",
 };
 const capabilityOrder = Object.keys(capabilityNames);
@@ -24,7 +26,7 @@ const capabilityDetailsOpen = new Set();
 const capabilitySummaries = new Map();
 
 function isPrerequisite(name) {
-  return name.startsWith("host.") || name.startsWith("kernel.") || name.startsWith("integrity.");
+  return name.startsWith("host.") || name.startsWith("kernel.") || (name.startsWith("integrity.") && name !== "integrity.agent_files");
 }
 
 // Confirmed implemented collection takes precedence over passive diagnostics;
@@ -46,17 +48,26 @@ function capabilityPresentation(name, value) {
 
   if (name === "integrity.tpm") {
     if (support === "error") return show("확인 오류", "error", "서버 보안칩이 있는지 확인하지 못했습니다.", "서버 장치 정보를 확인하세요.");
-    if (support === "supported") return show("장치 있음", "inactive", "서버에 보안칩이 있습니다. 에이전트 무결성 검증은 아직 제공하지 않습니다.");
-    if (support === "unsupported") return show("장치 없음", "inactive", "서버에 보안칩이 없습니다. 웹셸 탐지에 필수인 장치는 아닙니다. 무결성 검증은 아직 제공하지 않습니다.");
+    if (support === "supported") return show("장치 있음", "inactive", "서버 보안칩 장치를 확인했습니다. TPM 기반 원격 증명은 별도 기능입니다.");
+    if (support === "unsupported") return show("장치 없음", "inactive", "서버에 보안칩이 없습니다. 웹셸 탐지에 필수인 장치는 아닙니다. TPM 기반 원격 증명은 별도 기능입니다.");
     return result;
   }
   if (name === "integrity.ima") {
     if (support === "error") return show("확인 오류", "error", "운영체제의 파일 측정 정보를 확인하지 못했습니다.", "서버 측정 설정을 확인하세요.");
-    if (support === "supported") return show("정보 있음", "inactive", "운영체제의 파일 측정 정보를 확인했습니다. 에이전트 무결성 검증은 아직 제공하지 않습니다.");
+    if (support === "supported") return show("정보 있음", "inactive", "커널 IMA 측정 정보가 있습니다. 에이전트 파일의 검사 결과는 센트럴에서 확인하세요.");
     if (support === "unsupported") return show("제공 안 함", "inactive", "운영체제가 파일 측정 정보를 제공하지 않습니다. 웹셸 탐지에 필수인 정보는 아닙니다.");
     return result;
   }
   if (!knownSupport) return result;
+  if (name === "integrity.agent_files") {
+    if (support === "supported" && runtime === "available" && capability.details?.contract === "1") {
+      return show("측정 지원", "inactive", "승인된 리비전의 에이전트 파일을 측정할 수 있습니다.", "최근 측정 시각과 파일별 비교 결과는 센트럴에서 확인하세요.");
+    }
+    return result;
+  }
+  if (name === "detection.service_rule_controls" && runtime === "available" && capability.details?.contract === "1") {
+    return show("정책 지원", "inactive", "규칙별 서비스 설정과 예외 만료 시간을 적용할 수 있습니다.");
+  }
   if (name === "detection.service_observations") {
     if (runtime === "available" && capability.implementation === "implemented" && capability.details?.contract === "1") return show("정책 지원", "inactive", "중앙에서 서명한 보호 경로와 허용 TCP 목적지를 적용할 수 있습니다. 센서 수신 상태는 파일 쓰기·TCP 연결 요청 관측에서 확인하세요.");
     return result;

@@ -164,3 +164,26 @@ func TestPolicyCheckpointRejectsEqualRevisionMutationAndRollback(t *testing.T) {
 		t.Fatalf("rejected policy changed approved state: %#v %v", stored, err)
 	}
 }
+
+func TestStoredPolicyMeasurementUsesExactBytesAndBounds(t *testing.T) {
+	store, _ := openTestStore(t)
+	ctx := context.Background()
+	if _, _, err := store.StoredPolicyBytes(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatal(err)
+	}
+	raw := []byte(`{ "extra" : [] }`)
+	if _, err := store.db.Exec("INSERT INTO managed_policy(singleton,revision,signed_json,applied_at_ns) VALUES(1,1,?,1)", raw); err != nil {
+		t.Fatal(err)
+	}
+	got, large, err := store.StoredPolicyBytes(ctx)
+	if err != nil || large || string(got) != string(raw) {
+		t.Fatal(string(got), large, err)
+	}
+	if _, err := store.db.Exec("UPDATE managed_policy SET signed_json=zeroblob(?)", managed.MaxPolicyBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	got, large, err = store.StoredPolicyBytes(ctx)
+	if err != nil || !large || len(got) != 0 {
+		t.Fatal(len(got), large, err)
+	}
+}

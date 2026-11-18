@@ -135,10 +135,14 @@ for(const name of ["constructor","__proto__","toString"]){value=present(name,fix
 value=present("collector.tetragon",null);assert.equal(value.label,"확인 필요");
 value=present("observation.file",fixture({implementation:"planned"}));
 assert.equal(value.category,"planned");assert.equal(value.label,"개발 예정");assert.equal(value.active,false);
+value=present("integrity.agent_files",fixture({state:"supported",runtime_state:"available",implementation:"implemented",details:{contract:"1"}}));
+assert.equal(value.category,"operational");assert.equal(value.label,"측정 지원");assert.equal(value.active,false);
+value=present("integrity.agent_files",fixture({state:"supported",runtime_state:"available",implementation:"implemented",details:{contract:"2"}}));
+assert.equal(value.label,"확인 필요");
 value=present("integrity.tpm",fixture({state:"unsupported",runtime_state:"inactive",implementation:"planned"}));
-assert.equal(value.category,"prerequisite");assert.equal(value.label,"장치 없음");assert.match(value.description,/필수인 장치는 아닙니다/);assert.match(value.description,/검증은 아직 제공하지/);
+assert.equal(value.category,"prerequisite");assert.equal(value.label,"장치 없음");assert.match(value.description,/필수인 장치는 아닙니다/);assert.match(value.description,/TPM 기반 원격 증명/);
 value=present("integrity.ima",fixture({state:"supported",runtime_state:"inactive",implementation:"planned"}));
-assert.equal(value.label,"정보 있음");assert.equal(value.tone,"inactive");assert.match(value.description,/무결성 검증은 아직 제공하지/);
+assert.equal(value.label,"정보 있음");assert.equal(value.tone,"inactive");assert.match(value.description,/IMA 측정 정보/);
 `
 
 const operatorCapabilityRowsBehavior = `

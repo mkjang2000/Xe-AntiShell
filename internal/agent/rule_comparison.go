@@ -20,9 +20,10 @@ import (
 
 // RuleComparison contains only aggregates from the supplied local sample.
 type RuleComparison struct {
-	Events     int              `json:"events"`
-	EventTypes map[string]int   `json:"event_types"`
-	Rules      []RuleDifference `json:"rules"`
+	EvaluatedAt time.Time        `json:"evaluated_at"`
+	Events      int              `json:"events"`
+	EventTypes  map[string]int   `json:"event_types"`
+	Rules       []RuleDifference `json:"rules"`
 }
 
 type RuleDifference struct {
@@ -44,7 +45,14 @@ func (offlineProcesses) OriginService(context.Context, int) (string, error)     
 // CompareRules evaluates two standalone configurations in isolation. Neither
 // service starts, enrolls, loads a managed policy, or reads the live process tree.
 func CompareRules(ctx context.Context, current, candidate config.Config, input io.Reader) (RuleComparison, error) {
-	result := RuleComparison{EventTypes: make(map[string]int)}
+	return CompareRulesAt(ctx, current, candidate, input, time.Now())
+}
+
+func CompareRulesAt(ctx context.Context, current, candidate config.Config, input io.Reader, at time.Time) (RuleComparison, error) {
+	if at.IsZero() {
+		return RuleComparison{}, errors.New("comparison evaluation time is required")
+	}
+	result := RuleComparison{EvaluatedAt: at.UTC(), EventTypes: make(map[string]int)}
 	var services [2]*Service
 	for i, cfg := range []config.Config{current, candidate} {
 		store, err := storage.OpenEphemeral(ctx)
@@ -131,7 +139,7 @@ func replayComparison(ctx context.Context, input io.Reader, services [2]*Service
 			if event.IngestTime.IsZero() {
 				event.IngestTime = event.EventTime
 			}
-			if err := svc.processObservation(ctx, &event, 0, time.Time{}); err != nil {
+			if err := svc.processObservation(ctx, &event, 0, time.Time{}, result.EvaluatedAt); err != nil {
 				return fmt.Errorf("replay line %d: %w", line, err)
 			}
 			if i == 0 {

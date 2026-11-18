@@ -2,7 +2,7 @@ package detection
 
 import "xe-antishell/internal/model"
 
-func (e *Engine) evaluateCredentials(event model.Event, lineage AncestorProvider) []model.Finding {
+func (e *Engine) evaluateCredentials(event model.Event, lineage AncestorProvider, r ruleDecision) []model.Finding {
 	c := event.Credential
 	if event.Source != "tetragon" || event.Type != "process.credential_change" || event.BootID == "" ||
 		event.Process.ExecID == "" || event.Process.StartTime.IsZero() || event.EventTime.IsZero() || c == nil || c.Validate() != nil || c.Outcome != "applied" ||
@@ -40,14 +40,18 @@ func (e *Engine) evaluateCredentials(event model.Event, lineage AncestorProvider
 			factors = append(factors, model.RiskFactor{ID: "root_identity_change", Score: 50})
 		}
 	}
+	if rule != "" && !r.allows(rule) {
+		rule = ""
+		factors = nil
+	}
 	gain, activation, dangerous := capabilityIncrease(before, after)
 	if rule == "" {
 		switch {
-		case gain:
+		case gain && r.allows(rulePrivilegeCapabilityGain):
 			rule = rulePrivilegeCapabilityGain
 			summary = "프로세스 Capability 권한집합 증가 관측. user namespace와 승인된 작업인지 확인."
 			factors = append(factors, model.RiskFactor{ID: "capability_gain", Score: 45})
-		case activation:
+		case activation && r.allows(rulePrivilegeCapabilityActivated):
 			rule = rulePrivilegeCapabilityActivated
 			summary = "기존 permitted 범위의 Capability 활성화 관측. 승인된 작업인지 확인."
 			factors = append(factors, model.RiskFactor{ID: "permitted_capability_activation", Score: 25})

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"xe-antishell/internal/agent"
 )
@@ -92,5 +93,47 @@ func TestOfflineCompareServiceObservationExample(t *testing.T) {
 	}
 	if hits != 2 {
 		t.Fatalf("missing fixture rules: %d", hits)
+	}
+}
+
+func TestCompareServiceExceptionUsesSameFixedEvaluationClock(t *testing.T) {
+	current := "../../configs/examples/agent-service-observations.yaml"
+	raw, err := os.ReadFile(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := filepath.Join(t.TempDir(), "candidate.yaml")
+	raw = bytes.Replace(raw, []byte("  enabled: true"), []byte("  enabled: true\n  service_rule_controls:\n    - service: example-web.service\n      rule_id: service-protected-file-write\n      mode: suppress_until\n      reason: approved rollout\n      expires_at: 2030-01-01T00:00:00Z"), 1)
+	if err := os.WriteFile(candidate, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		at      string
+		removed int
+	}{{"2029-12-31T23:59:59.999999999Z", 1}, {"2030-01-01T00:00:00Z", 0}} {
+		var stdout, stderr bytes.Buffer
+		err := run([]string{"--json", "rules", "compare", "--at", tc.at, "--current", current, "--candidate", candidate, "--events", "../../testdata/events/service-observations.jsonl"}, &stdout, &stderr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got agent.RuleComparison
+		if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.EvaluatedAt.Format(time.RFC3339Nano) != tc.at {
+			t.Fatal("wrong comparison clock")
+		}
+		seen := false
+		for _, r := range got.Rules {
+			if r.ID == "service-protected-file-write" {
+				seen = true
+				if r.Removed != tc.removed || r.Current != 1 {
+					t.Fatalf("wrong comparison at %s: %+v", tc.at, r)
+				}
+			}
+		}
+		if !seen {
+			t.Fatal("file rule missing")
+		}
 	}
 }

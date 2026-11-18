@@ -3,6 +3,8 @@ package detection
 import (
 	"slices"
 
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
+
 	"xe-antishell/internal/config"
 	"xe-antishell/internal/identity"
 	"xe-antishell/internal/model"
@@ -10,8 +12,8 @@ import (
 
 const (
 	operationRuleVersion                = "1.0.0"
-	ruleServiceProtectedFileWrite       = "service-protected-file-write"
-	ruleServiceUnexpectedTCPDestination = "service-unexpected-tcp-destination"
+	ruleServiceProtectedFileWrite       = managed.RuleServiceProtectedFileWrite
+	ruleServiceUnexpectedTCPDestination = managed.RuleServiceUnexpectedTCPDestination
 )
 
 var operationIdentityFields = [...]string{

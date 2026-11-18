@@ -1,26 +1,29 @@
 package detection
 
 import (
+	"time"
+
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"xe-antishell/internal/capability"
 	"xe-antishell/internal/model"
 )
 
 const (
 	baseRuleVersion                      = "0.1.0"
-	ruleWebDescendantRootShell           = "web-descendant-root-shell"
-	ruleWebDescendantShell               = "web-descendant-shell"
-	ruleWebDescendantDownloadTool        = "web-descendant-download-tool"
-	ruleWebDescendantReconTool           = "web-descendant-recon-tool"
-	ruleWebDescendantConnectionTool      = "web-descendant-connection-tool"
-	ruleWebDescendantInlineInterpreter   = "web-descendant-inline-interpreter"
-	ruleWebDescendantTemporaryExecutable = "web-descendant-temporary-executable"
-	ruleWebDescendantTemporaryScript     = "web-descendant-temporary-script"
-	rulePrivilegeRootExecution           = "privilege-root-execution"
-	rulePrivilegeRootRestored            = "privilege-root-restored"
-	rulePrivilegeHostRootGain            = "privilege-host-root-gain"
-	rulePrivilegeRootIdentityChange      = "privilege-root-identity-change"
-	rulePrivilegeCapabilityGain          = "privilege-capability-gain"
-	rulePrivilegeCapabilityActivated     = "privilege-capability-activated"
+	ruleWebDescendantRootShell           = managed.RuleWebDescendantRootShell
+	ruleWebDescendantShell               = managed.RuleWebDescendantShell
+	ruleWebDescendantDownloadTool        = managed.RuleWebDescendantDownloadTool
+	ruleWebDescendantReconTool           = managed.RuleWebDescendantReconTool
+	ruleWebDescendantConnectionTool      = managed.RuleWebDescendantConnectionTool
+	ruleWebDescendantInlineInterpreter   = managed.RuleWebDescendantInlineInterpreter
+	ruleWebDescendantTemporaryExecutable = managed.RuleWebDescendantTemporaryExecutable
+	ruleWebDescendantTemporaryScript     = managed.RuleWebDescendantTemporaryScript
+	rulePrivilegeRootExecution           = managed.RulePrivilegeRootExecution
+	rulePrivilegeRootRestored            = managed.RulePrivilegeRootRestored
+	rulePrivilegeHostRootGain            = managed.RulePrivilegeHostRootGain
+	rulePrivilegeRootIdentityChange      = managed.RulePrivilegeRootIdentityChange
+	rulePrivilegeCapabilityGain          = managed.RulePrivilegeCapabilityGain
+	rulePrivilegeCapabilityActivated     = managed.RulePrivilegeCapabilityActivated
 )
 
 var builtinRules = [...]struct{ id, profile, title, description string }{
@@ -127,7 +130,12 @@ func RuleDefinitions() []model.RuleStatus {
 
 // Rules applies the same immutable options used by Evaluate.
 func (e *Engine) Rules(enabled bool) []model.RuleStatus {
+	return e.RulesAt(enabled, time.Now())
+}
+
+func (e *Engine) RulesAt(enabled bool, at time.Time) []model.RuleStatus {
 	rules := RuleDefinitions()
+	byID := e.ruleControlStatuses(at)
 	webOrigins := len(e.webServices) > 0 || len(e.webExecutables) > 0
 	var fileScope, networkScope bool
 	for _, scope := range e.serviceObservations {
@@ -136,6 +144,7 @@ func (e *Engine) Rules(enabled bool) []model.RuleStatus {
 	}
 	for i := range rules {
 		r := &rules[i]
+		r.ServiceControls = byID[r.ID]
 		if r.Profile == "base" && e.extendedProcessRules {
 			r.Version, r.Response = extendedRuleVersion, "detection_only"
 		}

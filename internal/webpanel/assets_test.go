@@ -286,7 +286,7 @@ assert.match(flatten(get("capabilityList")), /actual event received/);
 assert.match(flatten(get("capabilityList")), /동작 확인 시각/);
 assert.match(flatten(get("prerequisiteCapabilityList")), /장치 없음/);
 assert.match(flatten(get("prerequisiteCapabilityList")), /동작 확인/);
-assert.match(outsideDetails(get("prerequisiteCapabilityList")), /무결성 검증은 아직 제공하지/);
+assert.match(outsideDetails(get("prerequisiteCapabilityList")), /TPM 기반 원격 증명/);
 get("plannedCapabilities").open = true;
 fixture["collector.tetragon"].runtime_state = "error";
 fixture["collector.tetragon"].runtime_reason = "<script>alert(1)</script>";

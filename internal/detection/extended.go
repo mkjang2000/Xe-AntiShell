@@ -7,14 +7,14 @@ import (
 
 const extendedRuleVersion = "0.3.0"
 
-func (e *Engine) evaluateExtended(event model.Event, lineage AncestorProvider) []model.Finding {
+func (e *Engine) evaluateExtended(event model.Event, lineage AncestorProvider, r ruleDecision) []model.Finding {
 	origin, matched := e.MatchWebOrigin(event, lineage)
 	if !matched {
 		return nil
 	}
 	signals := e.classify(event, origin)
 	root := event.Process.EUID == 0 && fieldAvailable(event, "process.euid")
-	ruleID, summary := extendedRule(signals, root)
+	ruleID, summary := extendedRule(signals, root, r)
 	if ruleID == "" {
 		return nil
 	}
@@ -44,23 +44,23 @@ func (e *Engine) evaluateExtended(event model.Event, lineage AncestorProvider) [
 }
 
 // One observation event has one primary rule; its contributions remain visible.
-func extendedRule(signals processSignals, root bool) (string, string) {
+func extendedRule(signals processSignals, root bool, r ruleDecision) (string, string) {
 	switch {
-	case signals.shell && root:
+	case signals.shell && root && r.allows(ruleWebDescendantRootShell):
 		return ruleWebDescendantRootShell, "웹 출처에서 root 셸 실행 관측. 행위 확인 필요."
-	case signals.shell:
+	case signals.shell && !root && r.allows(ruleWebDescendantShell):
 		return ruleWebDescendantShell, "웹 출처에서 셸 실행 관측. 행위 확인 필요."
-	case signals.temporary:
+	case signals.temporary && r.allows(ruleWebDescendantTemporaryExecutable):
 		return ruleWebDescendantTemporaryExecutable, "웹 출처에서 임시 또는 메모리 경로의 실행 파일 실행 관측. 행위 확인 필요."
-	case signals.connection:
+	case signals.connection && r.allows(ruleWebDescendantConnectionTool):
 		return ruleWebDescendantConnectionTool, "웹 출처에서 연결 도구 실행 관측. 실제 연결 여부와 행위 확인 필요."
-	case signals.inline:
+	case signals.inline && r.allows(ruleWebDescendantInlineInterpreter):
 		return ruleWebDescendantInlineInterpreter, "웹 출처에서 인터프리터의 인라인 코드 실행 옵션 관측. 행위 확인 필요."
-	case signals.script:
+	case signals.script && r.allows(ruleWebDescendantTemporaryScript):
 		return ruleWebDescendantTemporaryScript, "웹 출처에서 임시·메모리·파일 디스크립터 경로의 스크립트 실행 인자 관측. 실제 실행 여부와 행위 확인 필요."
-	case signals.download:
+	case signals.download && r.allows(ruleWebDescendantDownloadTool):
 		return ruleWebDescendantDownloadTool, "웹 출처에서 다운로드 도구 실행 관측. 전송 여부와 행위 확인 필요."
-	case signals.recon:
+	case signals.recon && r.allows(ruleWebDescendantReconTool):
 		return ruleWebDescendantReconTool, "웹 출처에서 시스템 진단 도구 실행 관측. 행위 확인 필요."
 	default:
 		return "", ""

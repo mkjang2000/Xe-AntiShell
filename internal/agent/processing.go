@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"xe-antishell/internal/model"
+	"xe-antishell/internal/storage"
 )
 
 // generation is local queue metadata. Source and persisted event identities
@@ -51,7 +52,7 @@ func (s *Service) processQueuedEvent(item queuedEvent) {
 		s.lineage.ForgetCurrentPIDs()
 		s.processedGeneration = item.generation
 	}
-	if err := s.processObservation(context.Background(), &item.Event, item.generation, item.submittedAt); err != nil {
+	if err := s.processObservation(context.Background(), &item.Event, item.generation, item.submittedAt, time.Now()); err != nil {
 		s.recordProcessingFailure(err)
 	}
 }
@@ -73,7 +74,7 @@ func (s *Service) recordProcessingFailure(err error) {
 	s.updateCounters()
 }
 
-func (s *Service) processObservation(ctx context.Context, event *model.Event, generation uint64, submittedAt time.Time) error {
+func (s *Service) processObservation(ctx context.Context, event *model.Event, generation uint64, submittedAt, evaluationTime time.Time) error {
 	detection := s.detectionState.Load()
 	if err := s.normalizeEvent(event); err != nil {
 		s.parseErrs.Add(1)
@@ -88,8 +89,9 @@ func (s *Service) processObservation(ctx context.Context, event *model.Event, ge
 	switch event.Type {
 	case "process.exec":
 		if event.Process.PID > 0 && event.Process.OriginService == "" {
-			if origin, err := s.processSource.OriginService(ctx, event.Process.PID); err == nil {
-				event.Process.OriginService = origin
+			current, known := s.lineage.CurrentByPID(event.Process.PID)
+			if !known || !current.StartTime.After(event.Process.StartTime) {
+				event.Process.OriginService, _ = s.processSource.OriginService(ctx, event.Process.PID)
 			}
 		}
 		if event.Source == "audit" && s.config.Collector.Audit.OnlyDetectionOrigins && !detection.engine.IsPrivilegeCandidate(*event) {
@@ -97,7 +99,11 @@ func (s *Service) processObservation(ctx context.Context, event *model.Event, ge
 				return nil
 			}
 		}
+		directService := event.Process.OriginService
 		s.lineage.Observe(event)
+		if directService == "" && event.Process.OriginService != "" {
+			event.MissingFields = appendUnique(event.MissingFields, model.DirectServiceEvidence)
+		}
 		s.recordRuntimeEvent(*event, generation)
 	case "process.credential_change", "process.exec_observation", "file.write", "network.connect":
 		if err := s.observeOperationContext(ctx, event); err != nil {
@@ -114,16 +120,8 @@ func (s *Service) processObservation(ctx context.Context, event *model.Event, ge
 
 	var findings []model.Finding
 	if detection.enabled {
-		findings = detection.engine.Evaluate(*event, s.lineage)
+		findings = detection.engine.EvaluateAt(*event, s.lineage, evaluationTime)
 		s.applyResponseDecisions(findings, detection.policy)
-		for index := range findings {
-			if findings[index].DetectionOnly {
-				continue
-			}
-			if previous, err := s.store.GetFinding(ctx, findings[index].ID); err == nil && (previous.ResponseDecision == "sigterm_sent" || previous.ResponseDecision == "refused" || previous.ResponseDecision == "not_repeated") {
-				findings[index] = previous
-			}
-		}
 	}
 	// Evidence, derived findings, and managed delivery are one durable unit.
 	inserted, err := s.store.PersistObservationWithHistory(ctx, *event, findings, s.config.Limits.ObservationHistoryMinutes > 0)
@@ -136,6 +134,24 @@ func (s *Service) processObservation(ctx context.Context, event *model.Event, ge
 		s.capacity.lastLatency.Store(latency)
 	}
 	s.markEventProcessed(event.IngestTime, generation, inserted)
+	// A retry can finish a previously approved pending response, but a changed
+	// policy or an expired exception must never create a new response to old input.
+	if !inserted {
+		for i := range findings {
+			if findings[i].ResponseDecision != "terminate_pending" {
+				continue
+			}
+			saved, err := s.store.GetFinding(ctx, findings[i].ID)
+			if errors.Is(err, storage.ErrNotFound) || err == nil && saved.PolicyRevision != findings[i].PolicyRevision {
+				findings[i].ResponseDecision = "observe"
+				continue
+			}
+			if err != nil {
+				return &eventProcessingError{operation: "response", cause: err}
+			}
+			findings[i] = saved
+		}
+	}
 	responseAttempted := false
 	for _, finding := range findings {
 		responseAttempted = responseAttempted || (!finding.DetectionOnly && finding.ResponseDecision == "terminate_pending")

@@ -40,6 +40,7 @@ func (s *Service) startManagedWorkers(ctx context.Context) {
 		{3 * time.Second, s.managedHeartbeatLoop},
 		{5 * time.Second, s.managedPolicyLoop},
 		{7 * time.Second, s.managedUpdateLoop},
+		{11 * time.Second, s.managedFileIntegrityLoop},
 	} {
 		s.producerWG.Add(1)
 		go func(delay time.Duration, run func(context.Context)) {

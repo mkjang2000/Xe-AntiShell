@@ -33,6 +33,10 @@ function makeRuleRow(rule) {
     ["프로필", Object.hasOwn(profiles, rule.profile) ? profiles[rule.profile] : rule.profile || "미확인"],
     ["입력 이벤트", fields(rule.event_types)],
     ["필수 필드", fields(rule.required_fields)],
+    ...(Array.isArray(rule.service_controls) ? rule.service_controls.map(c => [c.service, [
+      c.mode === "suppress_until" ? (c.suppressed ? "임시 예외" : "예외 만료") : c.mode === "disabled" ? "규칙 끔" : "규칙 허용",
+      c.reason, c.expires_at
+    ].filter(Boolean).join(" · ")]) : []),
   ]);
   details.open = expandedRules.has(rule.id);
   const summary = details.children[0];
@@ -78,6 +82,7 @@ function renderRuleCatalog() {
   const sources = {managed:"중앙 정책", local:"서버 설정"};
   const source = available && Object.hasOwn(sources, catalog.policy_source) ? sources[catalog.policy_source] : "정책 출처 미확인";
   const scopes = available && Object.hasOwn(sources, catalog.service_observation_source) ? " · 파일·TCP 범위 " + sources[catalog.service_observation_source] : "";
-  text("rulePolicy", available ? source + (catalog.policy_revision ? " · 리비전 " + catalog.policy_revision : "") + scopes : "");
+  const evaluated = available && catalog.evaluated_at ? " · 평가 시각 " + new Date(catalog.evaluated_at).toLocaleString("ko-KR", {hour12:false}) : "";
+  text("rulePolicy", available ? source + (catalog.policy_revision ? " · 리비전 " + catalog.policy_revision : "") + scopes + evaluated : "");
   text("ruleCount", available ? `전체 ${catalog.rules.length}개 중 ${rules.length}개 표시` : "에이전트에서 규칙 현황을 가져오지 못했습니다.");
 }

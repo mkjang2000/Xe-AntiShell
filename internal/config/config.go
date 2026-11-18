@@ -28,6 +28,7 @@ const (
 )
 
 type Config struct {
+	SourceFile          string                     `json:"-" yaml:"-"` // Actual YAML read by sentineld.
 	Version             int                        `json:"version" yaml:"version"`
 	Agent               AgentConfig                `json:"agent" yaml:"agent"`
 	Collector           CollectorConfig            `json:"collector" yaml:"collector"`
@@ -100,14 +101,15 @@ type PrivacyConfig struct {
 }
 
 type DetectionConfig struct {
-	Enabled              bool     `json:"enabled" yaml:"enabled"`
-	ExtendedProcessRules bool     `json:"extended_process_rules,omitempty" yaml:"extended_process_rules,omitempty"`
-	PrivilegeRules       bool     `json:"privilege_rules,omitempty" yaml:"privilege_rules,omitempty"`
-	RootExecAlerts       string   `json:"root_exec_alerts,omitempty" yaml:"root_exec_alerts,omitempty"`
-	WebExecutables       []string `json:"web_executables" yaml:"web_executables"`
-	WebServices          []string `json:"web_services,omitempty" yaml:"web_services,omitempty"`
-	Shells               []string `json:"shells" yaml:"shells"`
-	AllowedPairs         []string `json:"allowed_pairs,omitempty" yaml:"allowed_pairs,omitempty"`
+	ServiceRuleControls  []managed.ServiceRuleControl `json:"service_rule_controls,omitempty" yaml:"service_rule_controls,omitempty"`
+	Enabled              bool                         `json:"enabled" yaml:"enabled"`
+	ExtendedProcessRules bool                         `json:"extended_process_rules,omitempty" yaml:"extended_process_rules,omitempty"`
+	PrivilegeRules       bool                         `json:"privilege_rules,omitempty" yaml:"privilege_rules,omitempty"`
+	RootExecAlerts       string                       `json:"root_exec_alerts,omitempty" yaml:"root_exec_alerts,omitempty"`
+	WebExecutables       []string                     `json:"web_executables" yaml:"web_executables"`
+	WebServices          []string                     `json:"web_services,omitempty" yaml:"web_services,omitempty"`
+	Shells               []string                     `json:"shells" yaml:"shells"`
+	AllowedPairs         []string                     `json:"allowed_pairs,omitempty" yaml:"allowed_pairs,omitempty"`
 }
 
 func Default() Config {
@@ -198,6 +200,9 @@ func Decode(r io.Reader) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if err := managed.ValidateServiceRuleControls(c.Detection.ServiceRuleControls); err != nil {
+		return err
+	}
 	if err := managed.ValidateServiceObservations(c.ServiceObservations); err != nil {
 		return err
 	}

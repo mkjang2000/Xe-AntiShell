@@ -58,6 +58,7 @@ Xe-AntiShell/
 │   │   ├── service_observations.go # Exact active service scopes and detection-only operation findings
 │   │   ├── protected_file_write.go # Positive writes under protected directories
 │   │   ├── network_destination.go # TCP initiations outside the service CIDR/port list
+│   │   ├── rule_controls.go       # Exact service/rule decisions with UTC exception expiry
 │   │   ├── catalog.go             # Shared built-in rule IDs, titles, versions and evidence requirements
 │   │   ├── classifiers.go         # Process/path observations without command reconstruction
 │   │   ├── execution.go           # Code-free exact-argv/policy evidence and runtime-argument removal
@@ -69,6 +70,7 @@ Xe-AntiShell/
 │   ├── lineage/                   # Bounded process ancestry and source-context tracking
 │   ├── localapi/                  # HTTP/JSON API and client over Unix socket
 │   ├── model/                     # Shared core aliases plus agent-only history/UI models
+│   ├── integrity/                 # Bounded SHA-256 checks of packaged files and approved site YAML
 │   ├── managedclient/             # Pinned-CA HTTPS, mTLS and safe transport diagnostics
 │   ├── privileges/                # Strict Tetragon args and root-owned fixed monitor-policy controller
 │   │   ├── policy_list.go         # Canonical empty upstream list and duplicate-key-safe decoding
@@ -108,9 +110,12 @@ Xe-AntiShell/
 ├── testdata/events/               # Controlled process, protected file-write and TCP destination samples
 ├── third_party/licenses/          # Upstream Go/runtime license texts for redistribution
 ├── protocol/                      # Independently tagged, stdlib-only shared Go module
+│   ├── integrity/                 # Optional mTLS assignments and fixed file measurement report
 │   ├── managed/                   # Wire contracts, signatures, removal and recovery primitives
+│   │   ├── rule_controls.go       # Shared built-in IDs, per-service modes and validation
 │   │   ├── service_observations.go # Shared scope validation and signed policy replacement semantics
 │   │   ├── updates.go             # Independent signed plan/install lease and separate inventory/report API contracts
+│   │   ├── policy_impact.go       # Scoped offline detector comparison inputs and aggregate output
 │   │   ├── releases.go            # Independently signed release manifest and built-in public publisher anchors
 │   │   └── testdata/              # Pre-extraction signed-policy/removal compatibility fixtures
 │   └── model/                     # Canonical core events, findings and agent status definitions
@@ -130,6 +135,7 @@ Xe-AntiShell/
 ├── devdocs/plans/
 │   ├── process-observation-clock.md # Lifecycle/observation clock separation and late-event persistence
 │   ├── capability-report-consistency.md # Configured collector discovery and independent live evidence
+│   ├── service-rule-controls.md   # Per-service rule policy, replay and comparison clock
 │   ├── service-observation-rules.md # Host-local file and TCP detection with signed service membership
 │   ├── operator-rules-observations-capacity.md # Rule visibility, I/O sampling and delivery measurement
 │   ├── collector-recovery.md       # Subscription-scoped evidence and recovery after a durable insert

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	contract "github.com/mkjang2000/Xe-AntiShell/protocol/integrity"
 	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"xe-antishell/internal/detection"
 	"xe-antishell/internal/model"
@@ -18,9 +19,10 @@ import (
 // A snapshot is immutable after publication, so an event uses the same policy
 // for origin filtering, rule evaluation, and response decisions.
 type detectionState struct {
-	engine  *detection.Engine
-	enabled bool
-	policy  *managed.Policy
+	engine       *detection.Engine
+	enabled      bool
+	policy       *managed.Policy
+	policySHA256 string
 }
 
 func (state *detectionState) serviceObservationSource() string {
@@ -75,6 +77,10 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 	if err := s.validatePolicyCoverage(policy); err != nil {
 		return err
 	}
+	digest, err := contract.PolicyDigest(signed)
+	if err != nil {
+		return err
+	}
 	if err := s.store.SavePolicy(ctx, signed); err != nil {
 		return err
 	}
@@ -83,22 +89,9 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 		policy.Response.Mode, policy.Response.Action = "observe", "none"
 		result, policyError = "stale", "approved policy expired; detection continues with response disabled"
 	}
-	scopes := s.config.ServiceObservations
-	if policy.Detection.ServiceObservations != nil {
-		scopes = *policy.Detection.ServiceObservations
-	}
 	s.detectionState.Store(&detectionState{
-		engine: detection.NewWithOptions(detection.Options{
-			ServiceObservations:  scopes,
-			WebExecutables:       policy.Detection.WebExecutables,
-			WebServices:          policy.Detection.WebServices,
-			Shells:               policy.Detection.Shells,
-			AllowedPairs:         policy.Detection.AllowedPairs,
-			ExtendedProcessRules: policy.Detection.ExtendedProcessRules,
-			PrivilegeRules:       policy.Detection.PrivilegeRules,
-			RootExecAlerts:       policy.Detection.RootExecAlerts,
-		}),
-		enabled: policy.Detection.Enabled, policy: &policy,
+		engine:  detectorForConfig(s.config.WithManagedDetection(policy.Detection)),
+		enabled: policy.Detection.Enabled, policy: &policy, policySHA256: digest,
 	})
 	runtime.mu.Lock()
 	runtime.status.Policy = managed.PolicyStatus{DesiredRevision: policy.Revision, ActiveRevision: policy.Revision, Result: result, Error: policyError, AppliedAt: &now}
@@ -152,7 +145,7 @@ func (s *Service) refreshPolicyExpiry(now time.Time) {
 	if state.policy.Response.Mode != "observe" || state.policy.Response.Action != "none" {
 		policy := *state.policy
 		policy.Response.Mode, policy.Response.Action = "observe", "none"
-		s.detectionState.Store(&detectionState{engine: state.engine, enabled: state.enabled, policy: &policy})
+		s.detectionState.Store(&detectionState{engine: state.engine, enabled: state.enabled, policy: &policy, policySHA256: state.policySHA256})
 	}
 	runtime.mu.Lock()
 	runtime.status.Policy.Result = "stale"

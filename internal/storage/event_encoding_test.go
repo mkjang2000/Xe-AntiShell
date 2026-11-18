@@ -119,7 +119,7 @@ func TestEventEncodingNeverCachesMutablePublicValues(t *testing.T) {
 	ctx := context.Background()
 	event := eventEncodingFixture(1)
 	want, _ := json.Marshal(event)
-	inserted, first, err := store.saveEventResult(ctx, event, false)
+	inserted, first, err := store.saveEventResult(ctx, event, false, false)
 	if err != nil || !inserted || !bytes.Equal(first, want) {
 		t.Fatalf("fresh event encoding failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestEventEncodingNeverCachesMutablePublicValues(t *testing.T) {
 	}
 	event.ID = "fresh-second-call"
 	event.Sequence++
-	inserted, second, err := store.saveEventResult(ctx, event, false)
+	inserted, second, err := store.saveEventResult(ctx, event, false, false)
 	if err != nil || !inserted || bytes.Equal(first, second) {
 		t.Fatalf("new call failed to encode current values: %v", err)
 	}

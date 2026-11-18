@@ -130,16 +130,7 @@ func NewWithProcessSource(cfg config.Config, store *storage.Store, prober Capabi
 		processSource: processSource,
 		lineage:       lineage.New(),
 		metrics:       hostmetrics.New("/proc", "/sys"),
-		detector: detection.NewWithOptions(detection.Options{
-			ServiceObservations:  cfg.ServiceObservations,
-			WebExecutables:       cfg.Detection.WebExecutables,
-			WebServices:          cfg.Detection.WebServices,
-			Shells:               cfg.Detection.Shells,
-			AllowedPairs:         cfg.Detection.AllowedPairs,
-			ExtendedProcessRules: cfg.Detection.ExtendedProcessRules,
-			PrivilegeRules:       cfg.Detection.PrivilegeRules,
-			RootExecAlerts:       cfg.Detection.RootExecAlerts,
-		}),
+		detector:      detectorForConfig(cfg),
 		eventQueue:    make(chan queuedEvent, cfg.Limits.QueueSize),
 		shutdownDone:  make(chan struct{}),
 		processorStop: make(chan struct{}),
@@ -624,3 +615,17 @@ func (s *Service) finishShutdown() {
 
 // DatabasePath returns the resolved configured path for diagnostics.
 func (s *Service) DatabasePath() string { return filepath.Clean(s.config.Agent.DatabasePath) }
+
+func detectorForConfig(cfg config.Config) *detection.Engine {
+	return detection.NewWithOptions(detection.Options{
+		ServiceRuleControls:  cfg.Detection.ServiceRuleControls,
+		ServiceObservations:  cfg.ServiceObservations,
+		WebExecutables:       cfg.Detection.WebExecutables,
+		WebServices:          cfg.Detection.WebServices,
+		Shells:               cfg.Detection.Shells,
+		AllowedPairs:         cfg.Detection.AllowedPairs,
+		ExtendedProcessRules: cfg.Detection.ExtendedProcessRules,
+		PrivilegeRules:       cfg.Detection.PrivilegeRules,
+		RootExecAlerts:       cfg.Detection.RootExecAlerts,
+	})
+}
