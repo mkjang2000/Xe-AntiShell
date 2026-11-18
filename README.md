@@ -30,8 +30,21 @@ and a final review:
 sudo ./install.sh
 ```
 
-Keep the `packaging/` directory beside the installer in its original directory
-structure. The installation bundle includes the helpers. For central enrollment,
+On Rocky Linux 9 or 10 (x86_64), you can start with just the installer:
+
+```bash
+workdir=$(mktemp -d) &&
+  cd "$workdir" &&
+  curl --disable --fail --show-error --location --proto '=https' --proto-redir '=https' \
+    --output install.sh https://raw.githubusercontent.com/mkjang2000/Xe-AntiShell/main/install.sh &&
+  sudo bash ./install.sh
+```
+
+The wizard prefers a compatible local RPM. With no local match or source build,
+it downloads the matching RPM from the pinned RPM28 release and checks the
+SHA-256 embedded in the installer and the RPM metadata. The wizard asks for
+confirmation before installation. A source checkout or full installation bundle
+provides the helpers locally. For central enrollment,
 paste the complete installation code issued by the authenticated central console.
 Input stays hidden. That code carries the central URL, agent ID and pinned public
 CA, so no separate CA/token files or recovery path need to be entered. The agent
@@ -362,7 +375,7 @@ For a non-root local demonstration, use temporary paths and a replay JSONL file:
 
 ## Managed installation
 
-`install.sh` installs a supplied or locally built RPM, waits for the agent API,
+`install.sh` installs a supplied, published or locally built RPM, waits for the agent API,
 and optionally enrolls and starts the local panel. If the exact package version
 is already installed it continues setup without reinstalling it. Incomplete
 enrollment options, invalid URL/ID formats, unsuitable file permissions/sizes

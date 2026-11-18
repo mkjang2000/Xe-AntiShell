@@ -151,7 +151,7 @@ Xe-AntiShell/
 ├── README.md
 ├── LICENSE                       # Project MIT license
 ├── THIRD_PARTY_NOTICES.md         # Included dependencies and external collector boundaries
-├── install.sh                    # Scripted setup or a no-argument TTY installation wizard
+├── install.sh                    # Local/build installation and verified release bootstrap for the TTY wizard
 ├── Makefile
 ├── go.mod
 └── go.sum

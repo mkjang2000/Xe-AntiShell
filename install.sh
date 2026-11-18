@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install a local or source-built RPM; enrollment credentials remain file inputs.
+# Install a local, published or source-built agent RPM.
 set -euo pipefail
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -25,6 +25,9 @@ Usage: sudo ./install.sh (--rpm PATH | --build) [OPTIONS]
 Choose one package source:
   --rpm PATH              Local xe-antishell RPM (no package download)
   --build                 Build this source checkout with scripts/build-rpm.sh
+
+The wizard offers a verified GitHub release on Rocky Linux 9/10 x86_64 if
+no compatible local RPM or source build is available.
 
 Optional central enrollment with an installation code:
   --enrollment-file PATH  Root-owned owner-only installation code file
@@ -93,7 +96,22 @@ check_file_size() {
 }
 
 detect_os() {
-  local os_id=unknown os_version=unknown key value major
+  local os_id os_version major
+  read_install_os
+  major=${os_version%%.*}
+  printf 'Detected OS: %s %s. Runtime probes determine available features.\n' "$os_id" "$os_version"
+  case "$os_id:$major" in
+    rocky:8|rocky:9|rocky:10|rhel:8|rhel:9|rhel:10|almalinux:8|almalinux:9|almalinux:10|centos:7) ;;
+    *) warn 'This OS is outside the intended Rocky/RHEL/Alma 8–10 or CentOS 7 families. RPM compatibility is unverified.' ;;
+  esac
+  if [[ "$os_id:$major" == centos:7 ]]; then
+    warn 'The packaged web service uses modern systemd credentials; CentOS 7 needs a compatible web service unit before web use.'
+  fi
+}
+
+read_install_os() {
+  local key value
+  os_id=unknown os_version=unknown
   if [[ -r "$XEAS_OS_RELEASE_FILE" ]]; then
     while IFS='=' read -r key value; do
       value=${value#\"}; value=${value%\"}
@@ -101,18 +119,100 @@ detect_os() {
       case "$key" in ID) os_id=$value ;; VERSION_ID) os_version=$value ;; esac
     done < "$XEAS_OS_RELEASE_FILE"
   fi
+}
+
+# Keep the release digests and helper revision in the script distributed to users.
+# The downloaded SHA256SUMS file is not a trust anchor for a first installation.
+fetch_install_file() {
+  local url=$1 file=$2 expected=$3 limit=$4 actual
+  require_command curl && require_command sha256sum || return 1
+  curl --disable --fail --silent --show-error --location --proto '=https' \
+    --proto-redir '=https' --connect-timeout 15 --max-time 180 \
+    --max-filesize "$limit" --output "$file" -- "$url" || {
+    fail "Download failed: $url"; return 1
+  }
+  check_file_size "$file" "$limit" || return 1
+  actual=$(sha256sum < "$file") || return 1
+  [[ "${actual%% *}" == "$expected" ]] || fail "SHA-256 verification failed: $url"
+}
+
+prepare_download_directory() {
+  if [[ -z "$download_directory" ]]; then
+    download_directory=$(mktemp -d /tmp/xeas-install-download.XXXXXX) || return 1
+  fi
+}
+
+fetch_install_helper() {
+  local path=$1 expected=$2
+  local revision=d46a468e14ab7bb4790db653300cfd7dda579363
+  prepare_download_directory || return 1
+  mkdir -p -- "$download_directory/${path%/*}" || return 1
+  fetch_install_file "https://raw.githubusercontent.com/mkjang2000/Xe-AntiShell/$revision/$path" \
+    "$download_directory/$path" "$expected" 262144
+}
+
+load_install_wizard() {
+  if [[ ! -e "$XEAS_WIZARD_SCRIPT" && ! -L "$XEAS_WIZARD_SCRIPT" ]]; then
+    fetch_install_helper packaging/install-wizard.sh b6d49760d2bc7dae7436eadf90d73e1cf1bd5131134ad34fcc415dfe5fc1af1b || return 1
+    XEAS_WIZARD_SCRIPT=$download_directory/packaging/install-wizard.sh
+  fi
+  check_regular_file "$XEAS_WIZARD_SCRIPT" || return 1
+  source "$XEAS_WIZARD_SCRIPT"
+}
+
+prepare_wizard_release() {
+  local os_id os_version major architecture digest name metadata
+  local -a wizard_packages=()
+  require_command rpm && require_command uname || return 1
+  architecture=$(uname -m) || return 1
+  wizard_package_choices "$architecture" || return 1
+  if (( ${#wizard_packages[@]} )) ||
+     [[ -f "$XEAS_INSTALL_ROOT/go.mod" && -f "$XEAS_INSTALL_ROOT/Makefile" && -x "$XEAS_BUILD_SCRIPT" ]]; then
+    return 0
+  fi
+  read_install_os
   major=${os_version%%.*}
-  printf 'Detected OS: %s %s. Runtime probes determine available features.\n' "$os_id" "$os_version"
-  case "$os_id:$major" in
-    rocky:8|rocky:9|rocky:10|rhel:8|rhel:9|rhel:10|almalinux:8|almalinux:9|almalinux:10|centos:7) ;;
-    *) warn 'This OS is outside the intended Rocky/RHEL/Alma 8–10 or CentOS 7 families. RPM compatibility is unverified.' ;;
+  case "$os_id:$major:$architecture" in
+    rocky:9:x86_64) digest=327b329544c4b020e0c9cac21d9195e02cc7d5d25a62121d7f5e332dae1dd4b6 ;;
+    rocky:10:x86_64) digest=d063746089554971ede624fab534d59b40141b9dbded6a00fc73b255a8684199 ;;
+    *)
+      warn 'Automatic RPM download supports Rocky Linux 9/10 x86_64. Select a local RPM.'
+      return 0 ;;
   esac
-  if [[ "$os_id:$major" != rocky:9 ]]; then
-    warn 'The current live validation host is Rocky Linux 9; this OS/version requires separate validation.'
+  prepare_download_directory || return 1
+  name=xe-antishell-0.1.0-28.el$major.x86_64.rpm
+  printf 'Rocky Linux %s용 GitHub 릴리즈를 확인합니다. (%s)\n' "$major" "$name" >&2
+  fetch_install_file "https://github.com/mkjang2000/Xe-AntiShell/releases/download/v0.1.0-r28/$name" \
+    "$download_directory/$name" "$digest" 67108864 || return 1
+  metadata=$(rpm -qp --queryformat '%{NAME}|%{EPOCHNUM}|%{VERSION}|%{RELEASE}|%{ARCH}' -- "$download_directory/$name") || return 1
+  [[ "$metadata" == "xe-antishell|0|0.1.0|28.el$major|x86_64" ]] || {
+    fail 'Downloaded RPM metadata does not match the selected release.'; return 1
+  }
+  # The existing wizard lists RPMs adjacent to the installer root.
+  XEAS_INSTALL_ROOT=$download_directory
+}
+
+load_downloaded_tetragon_helper() {
+  local path digest
+  if [[ -e "$XEAS_TETRAGON_SCRIPT" || -L "$XEAS_TETRAGON_SCRIPT" ]]; then
+    return 0
   fi
-  if [[ "$os_id:$major" == centos:7 ]]; then
-    warn 'The packaged web service uses modern systemd credentials; CentOS 7 needs a compatible web service unit before web use.'
-  fi
+  while read -r path digest; do
+    fetch_install_helper "$path" "$digest" || return 1
+  done <<'PINS'
+    packaging/install-tetragon.sh 1b1e864b33ddee3c19902276038f94e4036bd5697243564b413cf067504ce198
+    packaging/tetragon/artifacts.py 18b1d58756d39901a00abc3805ca185b2434d45376948d98ce5bc6d691793b71
+    packaging/tetragon/setup.py 4af42ae43519f7a6c5a4789a692acb39c1daa60b12c5c6d11d9525ac8116c4b9
+    packaging/tetragon/setup_common.py 1e296ac25d7b96399a4eeb8e0bceff0acb6abbb4b40a7a4f363d42517a9952e8
+    packaging/tetragon/setup_config.py 632b5e84c85c1819e19bdccfe82da35a565b33e314cfafbeb3915ccb447806ae
+    packaging/tetragon/setup_runtime.py 4cdb8f496bbc6e321d029fd6745123e927fd995ede7ffcd4b2d8632c6aadff6b
+    packaging/tetragon/setup_services.py db8201998c0698900067339a13b652cad951e17c3be7601d984ba749fd4f08c9
+    packaging/tetragon/setup_state.py 56e50bdee24aebfa74452b89a6d7f2234149f7cbc36b156c368bcf8475b7e5c4
+    packaging/tetragon/setup_workflow.py aad1cadacd2a359e3b0ffdd2a83f9d282b332e5f2902511ffeb4f85fac8a511a
+PINS
+  XEAS_INSTALL_ROOT=$download_directory
+  XEAS_TETRAGON_SCRIPT=$download_directory/packaging/install-tetragon.sh
+  source "$XEAS_TETRAGON_SCRIPT"
 }
 
 wait_for_agent() {
@@ -216,6 +316,7 @@ cleanup_install() {
   restore_install_terminal || :
   if [[ -n "${wizard_code_file:-}" ]]; then rm -f -- "$wizard_code_file" || :; fi
   if [[ -n "${build_directory:-}" ]]; then rm -rf -- "$build_directory" || :; fi
+  if [[ -n "${download_directory:-}" ]]; then rm -rf -- "$download_directory" || :; fi
 }
 
 run_install() {
@@ -234,7 +335,8 @@ main() (
   local rpm_path='' central_url='' agent_id='' ca_file='' token_file='' recovery_file='' enrollment_file=''
   local with_web=false with_build=false with_tetragon=false tetragon_only=false tetragon_archive='' tetragon_python=''
   local option value supplied=0 package_name recovery_parent candidate_nevra installed_nevra manager_version
-  local build_directory='' wizard_code_file='' wizard_tty_state='' interactive=false
+  local build_directory='' download_directory='' wizard_code_file='' wizard_tty_state='' interactive=false
+  local initial_install_root=$XEAS_INSTALL_ROOT
   local nevra_format='%{NAME}-%{EPOCH}:%{VERSION}-%{RELEASE}.%{ARCH}'
   trap cleanup_install EXIT
   trap 'exit 130' INT
@@ -244,9 +346,10 @@ main() (
     [[ -t 0 && -t 1 ]] || { fail '인자 없는 설치는 터미널에서 실행하세요. 자동 설치는 --rpm 또는 --build 옵션과 --help를 사용하세요.'; return 1; }
     require_root || return 1
     umask 077
-    check_regular_file "$XEAS_WIZARD_SCRIPT" || return 1
-    source "$XEAS_WIZARD_SCRIPT" || return 1
+    load_install_wizard || return 1
+    prepare_wizard_release || return 1
     run_install_wizard || return 1
+    XEAS_INSTALL_ROOT=$initial_install_root
     interactive=true
   fi
   while (( $# )); do
@@ -333,6 +436,7 @@ main() (
   installed_nevra=$(rpm -q --queryformat "$nevra_format" xe-antishell 2>/dev/null) || installed_nevra=''
   check_legacy_central_preflight "$installed_nevra" || return 1
   if [[ "$with_tetragon" == true ]]; then
+    load_downloaded_tetragon_helper || return 1
     check_regular_file "$XEAS_TETRAGON_SCRIPT" || return 1
     check_tetragon_preflight || return 1
   fi

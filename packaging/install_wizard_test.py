@@ -43,12 +43,41 @@ stat() {
   else command stat "$@"; fi
 }
 mktemp() {
-  if [[ "$1" == /tmp/xeas-install-code.* ]]; then
+  if [[ "$*" == '-d /tmp/xeas-install-download.'* ]]; then
+    command mktemp -d "$work/download.XXXXXX"
+  elif [[ "$1" == /tmp/xeas-install-code.* ]]; then
     command env > "$work/code-creation-environment"
     command mktemp "$work/code.XXXXXX";
   elif [[ "$1" == -d ]]; then command mktemp -d "$work/build.XXXXXX";
   else return 1; fi
 }
+curl() {
+  local output
+  [[ "$1" == --disable ]] || return 1
+  while [[ "$1" != --output ]]; do shift; done
+  output=$2
+  printf 'download %s\n' "$4" >> "$calls"
+  case "$4" in
+    https://raw.githubusercontent.com/mkjang2000/Xe-AntiShell/*/packaging/install-wizard.sh)
+      cp "$XEAS_WIZARD_FIXTURE" "$output" ;;
+    https://github.com/mkjang2000/Xe-AntiShell/releases/download/v0.1.0-r28/*)
+      printf 'rpm fixture %s\n' "${4##*/}" > "$output" ;;
+    *) return 1 ;;
+  esac
+}
+sha256sum() {
+  local content
+  content=$(cat)
+  case "$content" in
+    'rpm fixture '*el9*) printf '%s  -\n' 327b329544c4b020e0c9cac21d9195e02cc7d5d25a62121d7f5e332dae1dd4b6 ;;
+    'rpm fixture '*el10*)
+      if [[ -e "$work/corrupt" ]]; then printf 'wrong  -\n'
+      else printf '%s  -\n' d063746089554971ede624fab534d59b40141b9dbded6a00fc73b255a8684199; fi ;;
+    *) printf '%s\n' "$content" | command sha256sum ;;
+  esac
+}
+XEAS_WIZARD_FIXTURE=$XEAS_WIZARD_SCRIPT
+if [[ -e "$work/standalone" ]]; then XEAS_WIZARD_SCRIPT=$work/packaging/install-wizard.sh; fi
 rpm() {
   printf 'rpm %s\n' "$*" >> "$calls"
   case "$1" in
@@ -57,6 +86,10 @@ rpm() {
     -qp)
       [[ -f "${@: -1}" ]] || return 1
       case "$3" in
+        '%{NAME}|%{EPOCHNUM}|%{VERSION}|%{RELEASE}|%{ARCH}')
+          if [[ -e "$work/wrong-header" ]]; then printf 'another-package|0|0.1.0|28.el10|x86_64'
+          elif [[ "${@: -1}" == *el9* ]]; then printf 'xe-antishell|0|0.1.0|28.el9|x86_64'
+          else printf 'xe-antishell|0|0.1.0|28.el10|x86_64'; fi ;;
         '%{NAME}|%{ARCH}|%{RELEASE}')
           case "${@: -1}" in
             *central*) printf 'xe-antishell-central|x86_64|17.el10' ;;
@@ -191,6 +224,7 @@ def run_terminal(work, exchanges, expected=0, terminate=None, enrollment_failure
         assert SECRET not in (work / "calls").read_text(), "A code reached command arguments"
         assert not list(work.glob("code.*")), "Temporary installation code was retained"
         assert not list(work.glob("build.*")), "Temporary RPM build was retained"
+        assert not list(work.glob("download.*")), "Temporary downloads were retained"
         for environment in work.glob("*-environment"):
             assert SECRET not in environment.read_text(), "A code reached the environment"
         return text
@@ -236,6 +270,28 @@ if run_install 7; then exit 1; else result=$?; fi
         ("build", [(PACKAGE_PROMPT, "3"), (CENTRAL_PROMPT, "n"), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "yes")]),
         ("enrollment-failure", [(PACKAGE_PROMPT, ""), (CENTRAL_PROMPT, "y"), (CODE_PROMPT, SECRET), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "y")]),
     ]
+    for major, failure in (("9", ""), ("10", ""), ("10", "corrupt"), ("10", "wrong-header"), ("8", "")):
+        with tempfile.TemporaryDirectory(prefix="xeas-wizard-online-") as directory:
+            work = fixture(directory)
+            for candidate in [*work.glob("*.rpm"), work / "go.mod", work / "Makefile"]:
+                candidate.unlink()
+            (work / "standalone").touch()
+            (work / "os-release").write_text(f'ID=rocky\nVERSION_ID="{major}.1"\n')
+            if failure:
+                (work / failure).touch()
+                text = run_terminal(work, [], expected=1)
+                assert ("SHA-256 verification failed" if failure == "corrupt" else "metadata does not match") in text
+                assert_no_mutations(work)
+            elif major == "8":
+                run_terminal(work, [(PACKAGE_PROMPT, ""), ("설치할 RPM 경로: ", str(work / "manual/manual package.rpm")),
+                                    (CENTRAL_PROMPT, "n"), (TETRAGON_PROMPT, "n"), (WEB_PROMPT, "n"), (CONFIRM_PROMPT, "n")], expected=1)
+                assert "/releases/download/" not in (work / "calls").read_text()
+                assert_no_mutations(work)
+            else:
+                run_terminal(work, cases[0][1])
+                calls = (work / "calls").read_text()
+                assert f"/v0.1.0-r28/xe-antishell-0.1.0-28.el{major}.x86_64.rpm" in calls
+                assert any(line.startswith("rpm -Uvh ") and f"28.el{major}.x86_64.rpm" in line for line in calls.splitlines())
     for name, exchanges in cases:
         with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
             work = fixture(directory)
