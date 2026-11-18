@@ -144,7 +144,7 @@ prepare_download_directory() {
 
 fetch_install_helper() {
   local path=$1 expected=$2
-  local revision=d46a468e14ab7bb4790db653300cfd7dda579363
+  local revision=1d500ebf80511fb540da1a6667a4330fabcd17b0
   prepare_download_directory || return 1
   mkdir -p -- "$download_directory/${path%/*}" || return 1
   fetch_install_file "https://raw.githubusercontent.com/mkjang2000/Xe-AntiShell/$revision/$path" \
@@ -209,8 +209,8 @@ load_downloaded_tetragon_helper() {
     packaging/tetragon/setup_config.py 632b5e84c85c1819e19bdccfe82da35a565b33e314cfafbeb3915ccb447806ae
     packaging/tetragon/setup_runtime.py 4cdb8f496bbc6e321d029fd6745123e927fd995ede7ffcd4b2d8632c6aadff6b
     packaging/tetragon/setup_services.py db8201998c0698900067339a13b652cad951e17c3be7601d984ba749fd4f08c9
-    packaging/tetragon/setup_state.py 56e50bdee24aebfa74452b89a6d7f2234149f7cbc36b156c368bcf8475b7e5c4
-    packaging/tetragon/setup_workflow.py aad1cadacd2a359e3b0ffdd2a83f9d282b332e5f2902511ffeb4f85fac8a511a
+    packaging/tetragon/setup_state.py 244bd74716bc6212cccddc90c58f83dcaea34dc3f0389e61d1957a7378e67f8a
+    packaging/tetragon/setup_workflow.py 8a6216228b6467523f07f9977ea7651ec886ec80c829056ba2d7891288b99b83
 PINS
   XEAS_INSTALL_ROOT=$download_directory
   XEAS_TETRAGON_SCRIPT=$download_directory/packaging/install-tetragon.sh
