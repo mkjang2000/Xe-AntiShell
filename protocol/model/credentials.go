@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math"
 	"reflect"
-	"regexp"
 )
 
 // UserNamespace identifies the user namespace of a credential, not complete
@@ -150,11 +149,99 @@ func (o *CredentialObservation) Clone() *CredentialObservation {
 const CredentialPolicyName = "xeas-credential-change-v1"
 const CredentialEvidence = "tetragon_commit_creds_pair"
 
-var capabilityToken = regexp.MustCompile(`^CAP_[A-Z0-9_]{1,63}$`)
+// validCapabilityToken is byte-equivalent to ^CAP_[A-Z0-9_]{1,63}$.
+// Future well-formed CAP_* names remain valid; this is not a Linux-name enum.
+func validCapabilityToken(name string) bool {
+	if len(name) < 5 || len(name) > 67 || name[:4] != "CAP_" {
+		return false
+	}
+	for index := 4; index < len(name); index++ {
+		value := name[index]
+		if (value < 'A' || value > 'Z') && (value < '0' || value > '9') && value != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func validateCredentialCapabilities(set []string) error {
+	if len(set) > 64 {
+		return errors.New("too many credential capabilities")
+	}
+	var seen map[string]struct{}
+	previous := ""
+	for index, name := range set {
+		if !validCapabilityToken(name) {
+			return errors.New("invalid credential capability")
+		}
+		if index > 0 {
+			if name == previous {
+				return errors.New("invalid credential capability")
+			}
+			if seen == nil && name < previous {
+				// The validated prefix is sorted and unique. Only unordered
+				// public inputs need a map; never sort caller-owned evidence.
+				seen = make(map[string]struct{}, len(set))
+				for _, earlier := range set[:index] {
+					seen[earlier] = struct{}{}
+				}
+			}
+		}
+		if seen != nil {
+			if _, duplicate := seen[name]; duplicate {
+				return errors.New("invalid credential capability")
+			}
+			seen[name] = struct{}{}
+		}
+		previous = name
+	}
+	return nil
+}
+
+// checkCredentialSnapshot derives completeness while validating current values.
+// Its result is call-local: public snapshots are mutable and carry no cache.
+func checkCredentialSnapshot(s *CredentialSnapshot) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	complete := true
+	for _, p := range []*uint32{s.UID, s.EUID, s.GID, s.EGID, s.SUID, s.SGID, s.FSUID, s.FSGID} {
+		if p == nil {
+			complete = false
+		} else if *p == math.MaxUint32 {
+			return false, errors.New("invalid credential ID")
+		}
+	}
+	if n := s.UserNamespace; n != nil {
+		if n.Inum > math.MaxUint32 || (n.IsHost != nil && *n.IsHost && n.Inum == 0) || (n.Level != nil && (*n.Level < 0 || *n.Level > 64)) || (n.Level != nil && n.IsHost != nil && ((*n.Level == 0) != *n.IsHost)) {
+			return false, errors.New("invalid credential user namespace")
+		}
+		if n.Inum == 0 {
+			complete = false
+		}
+	} else {
+		complete = false
+	}
+	if s.Capabilities != nil {
+		for _, set := range [][]string{s.Capabilities.Effective, s.Capabilities.Permitted, s.Capabilities.Inheritable} {
+			if set == nil {
+				complete = false
+			}
+			if err := validateCredentialCapabilities(set); err != nil {
+				return false, err
+			}
+		}
+	} else {
+		complete = false
+	}
+	return complete, nil
+}
 
 // Complete describes the fixed copier's numeric, namespace and capability
 // snapshot, not an independent proof of source trust.
 func (s *CredentialSnapshot) Complete() bool {
+	// Keep partial observations cheap: presence alone can establish that a
+	// snapshot is incomplete. Full values still receive a fresh validation.
 	if s == nil || s.Capabilities == nil || s.Capabilities.Effective == nil || s.Capabilities.Permitted == nil || s.Capabilities.Inheritable == nil || s.UserNamespace == nil || s.UserNamespace.Inum == 0 {
 		return false
 	}
@@ -163,48 +250,25 @@ func (s *CredentialSnapshot) Complete() bool {
 			return false
 		}
 	}
-	return s.Validate() == nil
+	complete, err := checkCredentialSnapshot(s)
+	return err == nil && complete
 }
 
 func (s *CredentialSnapshot) Validate() error {
-	if s == nil {
-		return nil
-	}
-	for _, p := range []*uint32{s.UID, s.EUID, s.GID, s.EGID, s.SUID, s.SGID, s.FSUID, s.FSGID} {
-		if p != nil && *p == math.MaxUint32 {
-			return errors.New("invalid credential ID")
-		}
-	}
-	if n := s.UserNamespace; n != nil {
-		if n.Inum > math.MaxUint32 || (n.IsHost != nil && *n.IsHost && n.Inum == 0) || (n.Level != nil && (*n.Level < 0 || *n.Level > 64)) || (n.Level != nil && n.IsHost != nil && ((*n.Level == 0) != *n.IsHost)) {
-			return errors.New("invalid credential user namespace")
-		}
-	}
-	if s.Capabilities != nil {
-		for _, set := range [][]string{s.Capabilities.Effective, s.Capabilities.Permitted, s.Capabilities.Inheritable} {
-			if len(set) > 64 {
-				return errors.New("too many credential capabilities")
-			}
-			seen := map[string]bool{}
-			for _, name := range set {
-				if !capabilityToken.MatchString(name) || seen[name] {
-					return errors.New("invalid credential capability")
-				}
-				seen[name] = true
-			}
-		}
-	}
-	return nil
+	_, err := checkCredentialSnapshot(s)
+	return err
 }
 
 func (o *CredentialObservation) Validate() error {
 	if o == nil || o.TGID < 1 || o.TID < 1 || uint64(o.TGID) > math.MaxInt32 || uint64(o.TID) > math.MaxInt32 || o.TaskStartTimeNS == 0 || o.Evidence != CredentialEvidence || o.PolicyName != CredentialPolicyName || o.Function != "commit_creds" {
 		return errors.New("invalid credential observation identity or evidence")
 	}
-	if err := o.Before.Validate(); err != nil {
+	beforeComplete, err := checkCredentialSnapshot(o.Before)
+	if err != nil {
 		return err
 	}
-	if err := o.After.Validate(); err != nil {
+	afterComplete, err := checkCredentialSnapshot(o.After)
+	if err != nil {
 		return err
 	}
 	expected := "unknown"
@@ -214,7 +278,7 @@ func (o *CredentialObservation) Validate() error {
 		}
 		if *o.ReturnValue < 0 {
 			expected = "failed"
-		} else if o.Before.Complete() && o.After.Complete() {
+		} else if beforeComplete && afterComplete {
 			expected = "applied"
 		}
 	}
