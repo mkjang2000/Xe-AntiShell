@@ -23,6 +23,13 @@ type detectionState struct {
 	policy  *managed.Policy
 }
 
+func (state *detectionState) serviceObservationSource() string {
+	if state != nil && state.policy != nil && state.policy.Detection.ServiceObservations != nil {
+		return "managed"
+	}
+	return "local"
+}
+
 func (s *Service) currentMonitoring() managed.MonitoringPolicy {
 	if state := s.detectionState.Load(); state != nil && state.policy != nil {
 		return state.policy.Monitoring
@@ -76,9 +83,13 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 		policy.Response.Mode, policy.Response.Action = "observe", "none"
 		result, policyError = "stale", "approved policy expired; detection continues with response disabled"
 	}
+	scopes := s.config.ServiceObservations
+	if policy.Detection.ServiceObservations != nil {
+		scopes = *policy.Detection.ServiceObservations
+	}
 	s.detectionState.Store(&detectionState{
 		engine: detection.NewWithOptions(detection.Options{
-			ServiceObservations:  s.config.ServiceObservations,
+			ServiceObservations:  scopes,
 			WebExecutables:       policy.Detection.WebExecutables,
 			WebServices:          policy.Detection.WebServices,
 			Shells:               policy.Detection.Shells,

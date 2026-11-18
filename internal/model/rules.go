@@ -4,10 +4,11 @@ import "time"
 
 // RuleCatalog reports the policy snapshot published by the running detector.
 type RuleCatalog struct {
-	PolicySource   string       `json:"policy_source"`
-	PolicyRevision uint64       `json:"policy_revision"`
-	Collector      string       `json:"collector"`
-	Rules          []RuleStatus `json:"rules"`
+	PolicySource             string       `json:"policy_source"`
+	ServiceObservationSource string       `json:"service_observation_source,omitempty"`
+	PolicyRevision           uint64       `json:"policy_revision"`
+	Collector                string       `json:"collector"`
+	Rules                    []RuleStatus `json:"rules"`
 }
 
 // Enabled denotes policy eligibility. Sensor receipts and response thresholds

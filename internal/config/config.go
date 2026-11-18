@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"go.yaml.in/yaml/v3"
 	"xe-antishell/internal/buildinfo"
 	"xe-antishell/internal/privileges"
@@ -197,7 +198,7 @@ func Decode(r io.Reader) (Config, error) {
 }
 
 func (c Config) Validate() error {
-	if err := validateServiceObservations(c.ServiceObservations); err != nil {
+	if err := managed.ValidateServiceObservations(c.ServiceObservations); err != nil {
 		return err
 	}
 	if c.Detection.RootExecAlerts != "" && (!c.Detection.PrivilegeRules || (c.Detection.RootExecAlerts != "suspicious" && c.Detection.RootExecAlerts != "all")) {

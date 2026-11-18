@@ -31,10 +31,11 @@ import (
 // This isolated TLS central issues a client certificate for the actual CSR so
 // retries exercise pinned trust, durable identity, and response validation.
 type enrollmentCentralFixture struct {
-	server   *httptest.Server
-	caPEM    []byte
-	status   atomic.Int64
-	requests atomic.Int64
+	policyKey ed25519.PrivateKey
+	server    *httptest.Server
+	caPEM     []byte
+	status    atomic.Int64
+	requests  atomic.Int64
 }
 
 func newEnrollmentCentralFixture(t *testing.T) *enrollmentCentralFixture {
@@ -62,10 +63,11 @@ func newEnrollmentCentralFixture(t *testing.T) *enrollmentCentralFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policyPublic, _, err := managed.GenerateSigningKey()
+	policyPublic, policyKey, err := managed.GenerateSigningKey()
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixture.policyKey = policyKey
 	fixture.status.Store(http.StatusCreated)
 	fixture.server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fixture.requests.Add(1)

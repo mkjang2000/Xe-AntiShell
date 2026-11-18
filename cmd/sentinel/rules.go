@@ -13,6 +13,9 @@ import (
 func writeRules(w io.Writer, catalog model.RuleCatalog) error {
 	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(table, "Policy: %s (revision %d)\nCollector: %s\n", catalog.PolicySource, catalog.PolicyRevision, catalog.Collector)
+	if catalog.ServiceObservationSource != "" {
+		fmt.Fprintln(table, "File/TCP scopes:", catalog.ServiceObservationSource)
+	}
 	fmt.Fprintln(table, "ID\tVERSION\tTITLE\tPROFILE\tENABLED\tRESPONSE\tSENSORS\tREASON")
 	for _, rule := range catalog.Rules {
 		sensors := make([]string, 0, len(rule.Sensors))

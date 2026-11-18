@@ -17,6 +17,7 @@ const capabilityNames = {
   "observation.network": "TCP 연결 요청 관측",
   "observation.credential_change": "권한 변경 전·후 관측",
   "detection.privilege_rules": "전역 root·권한 변경 탐지 규칙",
+  "detection.service_observations": "서비스별 파일·TCP 중앙 정책",
 };
 const capabilityOrder = Object.keys(capabilityNames);
 const capabilityDetailsOpen = new Set();
@@ -56,6 +57,10 @@ function capabilityPresentation(name, value) {
     return result;
   }
   if (!knownSupport) return result;
+  if (name === "detection.service_observations") {
+    if (runtime === "available" && capability.implementation === "implemented" && capability.details?.contract === "1") return show("정책 지원", "inactive", "중앙에서 서명한 보호 경로와 허용 TCP 목적지를 적용할 수 있습니다. 센서 수신 상태는 파일 쓰기·TCP 연결 요청 관측에서 확인하세요.");
+    return result;
+  }
   if (name === "detection.privilege_rules") {
     if (capability.implementation !== "implemented") return result;
     if (support === "unsupported") return show("프로필 사용 불가", "unsupported", "현재 수집 입력이 전역 실행·권한 변경 근거를 누락할 수 있어 이 프로필을 활성화할 수 없습니다.", "수집 인자를 검토한 뒤 다시 확인하세요.");

@@ -12,7 +12,7 @@ import (
 type testRulesBackend struct{ *fakeBackend }
 
 func (b testRulesBackend) Rules(context.Context) (model.RuleCatalog, error) {
-	return model.RuleCatalog{PolicySource: "managed", PolicyRevision: 42, Rules: []model.RuleStatus{{ID: "rule-id", RequiredFields: []string{"process.exe"}, Enabled: true}}}, nil
+	return model.RuleCatalog{PolicySource: "managed", ServiceObservationSource: "local", PolicyRevision: 42, Rules: []model.RuleStatus{{ID: "rule-id", RequiredFields: []string{"process.exe"}, Enabled: true}}}, nil
 }
 
 func TestRulesReadOnlyClientAndOlderBackend(t *testing.T) {
@@ -23,7 +23,7 @@ func TestRulesReadOnlyClientAndOlderBackend(t *testing.T) {
 		return recorder.Result(), nil
 	})}}
 	result, err := client.Rules(context.Background())
-	if err != nil || result.PolicyRevision != 42 || len(result.Rules) != 1 || !result.Rules[0].Enabled || result.Rules[0].RequiredFields[0] != "process.exe" {
+	if err != nil || result.PolicyRevision != 42 || result.ServiceObservationSource != "local" || len(result.Rules) != 1 || !result.Rules[0].Enabled || result.Rules[0].RequiredFields[0] != "process.exe" {
 		t.Fatalf("rules round trip %+v %v", result, err)
 	}
 	rec := httptest.NewRecorder()

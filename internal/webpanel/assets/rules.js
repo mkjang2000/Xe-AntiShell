@@ -77,6 +77,7 @@ function renderRuleCatalog() {
   ruleSummaries.get(focusedID)?.focus({preventScroll:true});
   const sources = {managed:"중앙 정책", local:"서버 설정"};
   const source = available && Object.hasOwn(sources, catalog.policy_source) ? sources[catalog.policy_source] : "정책 출처 미확인";
-  text("rulePolicy", available ? source + (catalog.policy_revision ? " · 리비전 " + catalog.policy_revision : "") : "");
+  const scopes = available && Object.hasOwn(sources, catalog.service_observation_source) ? " · 파일·TCP 범위 " + sources[catalog.service_observation_source] : "";
+  text("rulePolicy", available ? source + (catalog.policy_revision ? " · 리비전 " + catalog.policy_revision : "") + scopes : "");
   text("ruleCount", available ? `전체 ${catalog.rules.length}개 중 ${rules.length}개 표시` : "에이전트에서 규칙 현황을 가져오지 못했습니다.");
 }

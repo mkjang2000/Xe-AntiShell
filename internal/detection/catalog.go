@@ -41,9 +41,9 @@ var builtinRules = [...]struct{ id, profile, title, description string }{
 	{ruleWebDescendantTemporaryScript, "extended", "웹 서비스에서 임시 경로의 스크립트 실행 요청",
 		"인터프리터에 임시·메모리·파일 디스크립터 경로의 스크립트가 지정됐습니다. 파일 내용과 실행 성공 여부는 이 기록으로 확인할 수 없습니다."},
 	{ruleServiceProtectedFileWrite, "file", "서비스 보호 경로에 파일 쓰기",
-		"호스트에 지정한 보호 경로에 서비스가 실제 바이트를 썼습니다. 쓰기 예외는 제외합니다."},
+		"서비스가 적용 중인 정책의 보호 경로에 실제 바이트를 썼습니다. 쓰기 예외는 제외합니다."},
 	{ruleServiceUnexpectedTCPDestination, "network", "서비스 허용 범위 밖의 TCP 연결 시작",
-		"호스트에 지정한 주소·포트 범위 밖으로 서비스가 TCP 연결을 시작했습니다. 연결 결과와 전송 내용은 추가 확인이 필요합니다."},
+		"서비스가 적용 중인 정책의 주소·포트 범위 밖으로 TCP 연결을 시작했습니다. 연결 결과와 전송 내용은 추가 확인이 필요합니다."},
 	{rulePrivilegeRootExecution, "privilege", "전역 root 실행 관측",
 		"EUID 0 실행과 주변 문맥을 관측했습니다. 승인된 작업인지 확인하세요."},
 	{rulePrivilegeRootRestored, "privilege", "기존 root 자격으로 실행 권한 복귀",
@@ -143,9 +143,9 @@ func (e *Engine) Rules(enabled bool) []model.RuleStatus {
 		case !enabled:
 			r.Reason = "정책에서 전체 탐지가 꺼져 있습니다."
 		case r.Profile == "file" && !fileScope:
-			r.Reason = "현재 웹 서비스와 일치하는 호스트 보호 경로 설정이 없습니다."
+			r.Reason = "현재 웹 서비스에 적용되는 보호 경로가 없습니다."
 		case r.Profile == "network" && !networkScope:
-			r.Reason = "현재 웹 서비스와 일치하는 호스트 TCP 허용 목록이 없습니다."
+			r.Reason = "현재 웹 서비스에 적용되는 TCP 허용 목록이 없습니다."
 		case r.Profile == "privilege" && !e.privilegeRules:
 			r.Reason = "권한 탐지 프로필이 꺼져 있습니다."
 		case r.Profile == "extended" && !e.extendedProcessRules:

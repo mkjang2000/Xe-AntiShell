@@ -12,7 +12,7 @@
 - Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`, `cmd/sentinel-updater`
 - Developer Tool Entry: `cmd/xeas-release` (publisher signing tool, excluded from RPM payload)
 - Central Project: https://github.com/mkjang2000/Xe-AntiShell-Central
-- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.3.1`
+- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.4.0`
 - Build Command: `make build`, `make static`, or `make rpm`
 - Run Command: `build/sentineld --config configs/sentineld.yaml`
 - Test Command: `make verify` (source, shell/UI, vet, race tests, static build)
@@ -53,7 +53,7 @@ Xe-AntiShell/
 │   │   ├── privilege_credentials.go # Complete credential/capability/namespace decoding
 │   │   └── tetragon_observations.go # Fixed-policy inline/file/TCP metadata adapters
 │   ├── config/                    # Strict configuration loading and validation
-│   │   └── service_observations.go # Bounded host-local protected directories and TCP destination scopes
+│   │   └── service_observations.go # Host YAML aliases for shared service file and TCP scopes
 │   ├── detection/                 # Web-origin attribution and opt-in process behavior rules
 │   │   ├── service_observations.go # Exact active service scopes and detection-only operation findings
 │   │   ├── protected_file_write.go # Positive writes under protected directories
@@ -109,6 +109,7 @@ Xe-AntiShell/
 ├── third_party/licenses/          # Upstream Go/runtime license texts for redistribution
 ├── protocol/                      # Independently tagged, stdlib-only shared Go module
 │   ├── managed/                   # Wire contracts, signatures, removal and recovery primitives
+│   │   ├── service_observations.go # Shared scope validation and signed policy replacement semantics
 │   │   ├── updates.go             # Independent signed plan/install lease and separate inventory/report API contracts
 │   │   ├── releases.go            # Independently signed release manifest and built-in public publisher anchors
 │   │   └── testdata/              # Pre-extraction signed-policy/removal compatibility fixtures

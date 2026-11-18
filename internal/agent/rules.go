@@ -17,7 +17,7 @@ func (s *Service) Rules(ctx context.Context) (model.RuleCatalog, error) {
 		return model.RuleCatalog{}, errors.New("detector policy unavailable")
 	}
 	status, report := s.runtimeSnapshotFor(state)
-	catalog := model.RuleCatalog{PolicySource: "local", Collector: status.Collector, Rules: state.engine.Rules(state.enabled)}
+	catalog := model.RuleCatalog{PolicySource: "local", ServiceObservationSource: state.serviceObservationSource(), Collector: status.Collector, Rules: state.engine.Rules(state.enabled)}
 	mode := "observe"
 	if policy := state.policy; policy != nil {
 		catalog.PolicySource, catalog.PolicyRevision = "managed", policy.Revision

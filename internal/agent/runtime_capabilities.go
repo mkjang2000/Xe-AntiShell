@@ -10,6 +10,8 @@ import (
 	"xe-antishell/internal/response"
 )
 
+const serviceObservationCapability = "detection.service_observations"
+
 // Evidence is scoped to the selected source and subscription. Refreshing passive
 // prerequisites cannot fabricate receipt of a live source event.
 type sourceRuntimeEvidence struct {
@@ -104,6 +106,12 @@ func (s *Service) runtimeSnapshotFor(policy *detectionState) (model.AgentStatus,
 		report.Capabilities = make(map[string]model.Capability)
 	}
 	report.Capabilities[response.CapabilityName] = response.Capability(s.config.Response.AllowTerminate)
+	report.Capabilities[serviceObservationCapability] = model.Capability{
+		Name: serviceObservationCapability, Provider: "local-detector", State: model.CapabilitySupported,
+		Implementation: "implemented", RuntimeState: "available", Reason: "서비스별 파일·TCP 서명 정책 지원",
+		RuntimeReason: "파일·TCP 센서의 최근 수신은 해당 관측 항목에 표시됩니다.",
+		Details:       map[string]string{"contract": "1", "scope_source": policy.serviceObservationSource()},
+	}
 	s.applyPrivilegeCapabilities(&status, &report, evidence, policy.privilegeEnabled())
 	status.CapabilityReport = &report
 	return status, report

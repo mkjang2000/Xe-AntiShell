@@ -341,7 +341,12 @@ The following host YAML fragment enables detection-only findings for one
 application. Merge the service name into the existing web-services list. On a
 managed agent also include the exact name in the active signed policy's
 `detection.web_services`. The service name is case-sensitive for these rules.
-The path and destination settings are read from the agent's local YAML on startup.
+Omitting `detection.service_observations` from the signed policy uses the local
+YAML. A signed array replaces the local scopes in full, and a signed empty
+array disables both service rules. A higher revision can omit the field to
+restore the YAML scopes. `sentinel rules` shows the source in use. The
+`detection.service_observations` capability reports contract support, while
+`observation.file` and `observation.network` report sensor evidence.
 
 ```yaml
 detection:
@@ -505,7 +510,7 @@ separately dispatched `sentinel-updater` helper.
 The agent RPM owns no central files or service hooks. Distribution RPM triggers
 can still consume pending service restart markers from other packages.
 The released agent pins the published
-[`protocol v0.3.1`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.3.1/protocol)
+[`protocol v0.4.0`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.4.0/protocol)
 module, which includes optional typed execution/file/network/credential facts and separate
 signed package update contracts. Existing
 signature domains, stored identities and approved policy bytes are unchanged;

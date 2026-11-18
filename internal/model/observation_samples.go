@@ -3,12 +3,13 @@ package model
 import (
 	"errors"
 	"net/url"
-	"path"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	shared "github.com/mkjang2000/Xe-AntiShell/protocol/model"
 )
 
 type ObservationQuery struct {
@@ -90,8 +91,7 @@ func (q ObservationQuery) ReviewFile(s ObservationSample) string {
 
 // CleanObservationPath accepts complete, absolute Linux paths as recorded.
 func CleanObservationPath(value string) bool {
-	return len(value) <= 4096 && path.IsAbs(value) && path.Clean(value) == value &&
-		utf8.ValidString(value) && strings.IndexFunc(value, unicode.IsControl) < 0
+	return shared.CleanObservationPath(value)
 }
 
 func ConfirmedFileWrite(value, outcome string, result *int64) bool {
@@ -101,8 +101,5 @@ func ConfirmedFileWrite(value, outcome string, result *int64) bool {
 // WithinObservationDirectory compares validated paths lexically, at a component
 // boundary. It works for "/" and never resolves paths on the current host.
 func WithinObservationDirectory(value, dir string) bool {
-	if dir == "" || !strings.HasPrefix(value, dir) {
-		return false
-	}
-	return len(value) == len(dir) || dir == "/" || value[len(dir)] == '/'
+	return shared.WithinObservationDirectory(value, dir)
 }
