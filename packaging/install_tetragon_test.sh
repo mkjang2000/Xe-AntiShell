@@ -118,4 +118,40 @@ for failure in package imports; do
 done
 [[ "$(< "$test_root/stderr")" == *'Python 3.9+ with PyYAML is required'* ]]
 
+# Exercise the real Python preflight with only the standalone helper files.
+# Byte checks and the production helper list still run in this fixture.
+(
+  fetch_install_file() {
+    local url=$1 output=$2 expected=$3 checksum
+    cp -- "$repo_root/packaging/${url#*/packaging/}" "$output"
+    checksum=$(sha256sum < "$output")
+    [[ "${checksum%% *}" == "$expected" ]]
+  }
+  download_directory=$test_root/download
+  XEAS_TETRAGON_SCRIPT=$test_root/missing/packaging/install-tetragon.sh
+  load_downloaded_tetragon_helper
+  python3 -I - "$download_directory/packaging/tetragon" "$test_root/preflight" <<'PY'
+from pathlib import Path
+import sys
+
+sys.path.insert(0, sys.argv[1])
+from setup_common import Paths
+from setup_services import check_conflicts
+
+
+class Services:
+    def show(self, service, property_name):
+        if service == "sentineld.service" and property_name == "ExecStart":
+            return "{ path=/usr/sbin/sentineld ; argv[]=/usr/sbin/sentineld ; }"
+        return ""
+
+    def call(self, *args, check):
+        assert args == ("show-environment",) and not check
+        return 0, b""
+
+
+check_conflicts(Paths(Path(sys.argv[2])), Services())
+PY
+)
+
 printf 'Tetragon interpreter checks passed. No host packages or services were changed.\n'

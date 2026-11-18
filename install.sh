@@ -202,6 +202,8 @@ load_downloaded_tetragon_helper() {
   done <<'PINS'
     packaging/install-tetragon.sh 1b1e864b33ddee3c19902276038f94e4036bd5697243564b413cf067504ce198
     packaging/tetragon/artifacts.py 18b1d58756d39901a00abc3805ca185b2434d45376948d98ce5bc6d691793b71
+    packaging/tetragon/observation_policies.py cd8e04a2c71a517ba3b8efae5f05179ab34eaee715ed54ef368dad0ed8fb0276
+    packaging/tetragon/observation_state.py 388ba4e680cdfc17e5a4844480560270450de690eb18419c9cc8f4832e454ed3
     packaging/tetragon/setup.py 4af42ae43519f7a6c5a4789a692acb39c1daa60b12c5c6d11d9525ac8116c4b9
     packaging/tetragon/setup_common.py 1e296ac25d7b96399a4eeb8e0bceff0acb6abbb4b40a7a4f363d42517a9952e8
     packaging/tetragon/setup_config.py 632b5e84c85c1819e19bdccfe82da35a565b33e314cfafbeb3915ccb447806ae
