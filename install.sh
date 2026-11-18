@@ -144,7 +144,7 @@ prepare_download_directory() {
 
 fetch_install_helper() {
   local path=$1 expected=$2
-  local revision=1d500ebf80511fb540da1a6667a4330fabcd17b0
+  local revision=ac93457cc5a3f0567aa7c4b1e395ea6142774718
   prepare_download_directory || return 1
   mkdir -p -- "$download_directory/${path%/*}" || return 1
   fetch_install_file "https://raw.githubusercontent.com/mkjang2000/Xe-AntiShell/$revision/$path" \
@@ -153,7 +153,7 @@ fetch_install_helper() {
 
 load_install_wizard() {
   if [[ ! -e "$XEAS_WIZARD_SCRIPT" && ! -L "$XEAS_WIZARD_SCRIPT" ]]; then
-    fetch_install_helper packaging/install-wizard.sh b6d49760d2bc7dae7436eadf90d73e1cf1bd5131134ad34fcc415dfe5fc1af1b || return 1
+    fetch_install_helper packaging/install-wizard.sh 517386a629ea51e57cff4ccd9dc1f2fc0024fd601deb6fedc459e1118d32729a || return 1
     XEAS_WIZARD_SCRIPT=$download_directory/packaging/install-wizard.sh
   fi
   check_regular_file "$XEAS_WIZARD_SCRIPT" || return 1
