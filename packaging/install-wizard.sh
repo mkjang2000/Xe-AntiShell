@@ -46,7 +46,7 @@ wizard_installation_code() {
   # Disable tracing and automatic exports before any secret enters a variable.
   set +x
   set +a
-  local installation_code='' input_character='' LC_ALL=C
+  local installation_code='' input_character='' read_status LC_ALL=C
   export -n installation_code input_character
   require_command mktemp || return 1
   require_command rm || return 1
@@ -55,9 +55,12 @@ wizard_installation_code() {
   stty -echo -icanon min 1 time 0 || return 1
   printf '중앙 관리 웹에서 발급한 xeas1. 설치 코드를 붙여 넣고 Enter를 누르세요.\n' >&2
   printf '설치 코드 (화면에 표시되지 않음): ' >&2
-  # Single-character reads keep interrupt handling responsive during a paste.
+  # Bound the wait so Bash can run a signal trap queued as read starts.
   while true; do
-    if ! IFS= read -r -n 1 input_character || [[ "$input_character" == $'\004' ]]; then
+    read_status=0
+    IFS= read -r -n 1 -t 0.5 input_character || read_status=$?
+    if (( read_status > 128 )); then continue; fi
+    if (( read_status != 0 )) || [[ "$input_character" == $'\004' ]]; then
       printf '\n' >&2
       fail '입력이 종료되어 설치를 취소했습니다.'; return 1
     fi
