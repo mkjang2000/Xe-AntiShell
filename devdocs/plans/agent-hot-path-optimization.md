@@ -3,8 +3,8 @@
 Reduce the cost of the existing observation pipeline on small VPS hosts while
 preserving collection scope, detection results, evidence, input validation,
 privacy and signed-policy compatibility. Optimize the measured work first.
-This document is the implementation plan; it does not record an optimization
-as implemented or change the current deployment.
+This document records the staged plan and the measured first delivery below.
+Later transport work and the full resource objectives remain separate gates.
 
 The first reference environment is one vCPU and 1 GiB RAM. Reproduce roughly
 400 raw frames/second, including exec/exit, complex ancestry, unchanged and
@@ -191,3 +191,52 @@ Confirm collection, policy/enrollment continuity, detection-to-central delivery,
 CPU/RAM/GC, queue recovery and a longer observation window. Preserve rollback
 packages and queued data. A later transport change receives its own design and
 rollout gate rather than being hidden inside the first patch.
+
+## First delivery: RPM28 / protocol v0.3.1
+
+- Fixed release source: d46a468e14ab7bb4790db653300cfd7dda579363.
+- Delivered fresh-value credential validation, canonical pinned Capability JSON
+  decoding with standard fallback, and same-call event encoding reuse. Queue
+  privacy/size checks, retained evidence and atomic outbox obligations remain.
+- Controlled same-input 60 s comparison at 400 raw/s in one pinned CPU/1 GiB:
+  Agent CPU 66.90% → 44.18% of one core, 40.27 → 26.60 CPU seconds (33.95% less).
+  Exact source/event-core/finding hashes and stored/ACK counts matched.
+- A 20 min candidate endurance run accepted 480,000 raw inputs, 196,800 normalized
+  events and 100,800 stored/ACK records with 4,800 findings. Final delivery pending,
+  lost, parse, processing drop and OOM counters were zero in this synthetic run.
+  Warmup excluded.
+- Endurance Agent CPU averaged 42.13% of one core. After inferred 50K process-cache
+  fill, sampled RSS stayed approximately 287–331 MiB. File-cache reclaim pressure
+  occurred at the 1 GiB limit; this is not spare-memory certification for apps.
+- Fake Central/generator/harness shared the quota; actual Tetragon/BPF were
+  absent. The synthetic mix was 20% root exec / 20% exit / 59% unchanged credentials /
+  1% restored credentials with 41 caps / 4 ancestors. Other IO/partial cases passed
+  semantic tests but are not certified as sustained-load performance by this run.
+- The 50% Agent reduction and combined 30%-of-one-core stack targets remain
+  unmet/unproven. Normal escaped/unknown Capability inputs retain compatible
+  fallback semantics but have higher decoder cost than the pinned fast path.
+- Native Rocky 10 units, 68 Python tests, actual RPM installation/integrity,
+  replay/clock/credential/privacy/enrollment checks, targeted race/fuzz and
+  public Go 1.22/stable CI passed. Compiler runtime sections were identical
+  between the benchmark executable and packaged daemon; matching RPM
+  postprocessing reproduced the entire packaged binary byte-for-byte.
+- Signed RPMs were delivered through scoped Central updates to the development
+  host and one VPS. Both completed live collection checks and retained their
+  enrollment, signed policies and observe response mode.
+
+## Remaining diagnostics and transport work
+
+The existing aggregate Dropped counter does not distinguish queue timeout from
+storage failure, and transient storage errors clear after a successful save.
+Per-reason cumulative counts, last occurrence and queue highwater are needed to
+explain an earlier transient failure; healthy status alone cannot establish its
+cause or prove historical zero loss.
+
+Direct typed Unix gRPC is the next structural candidate for removing the
+tetra/JSON round trip. The pinned official Tetragon v1.8.0
+[API module](https://raw.githubusercontent.com/cilium/tetragon/v1.8.0/api/go.mod)
+requires Go 1.27 while the Agent supports Go 1.22. SDK migration or compatible
+client regeneration needs its own design, licensing and OS/wire validation.
+Wrapper/oneof presence, nil versus empty caps, omitted namespace bool values,
+strict hook proofs, raw/privacy markers, root socket/peer trust and reconnect
+gaps must be preserved. This transport is not part of RPM28.
