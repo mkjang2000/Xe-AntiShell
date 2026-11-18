@@ -81,6 +81,7 @@ Xe-AntiShell/
 │   │   ├── capacity.go            # UTC storage counters, expiry backlog and filesystem usage
 │   │   ├── delivery_capacity.go   # Transactional acknowledgement, outage and drain checkpoints
 │   │   ├── process_sweep.go       # Bounded, resumable pruning of unreferenced process records
+│   │   ├── event_sweep.go         # Resumable expiry pages over event time, preserving evidence and pending delivery
 │   │   ├── compact_observations.go # Minimal event projection and source-evidence digest
 │   │   ├── observation_samples.go # Bounded file/TCP review using the immutable event service
 │   │   └── process_context.go     # Durable operation context merge preserving process lifecycle

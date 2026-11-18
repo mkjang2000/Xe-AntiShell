@@ -294,6 +294,10 @@ func sequenceMetadataKey(bootID, streamID string) string {
 	return "sequence:" + bootID + ":" + streamID
 }
 
+const unreferencedEvent = `
+  AND NOT EXISTS (SELECT 1 FROM finding_events fe WHERE fe.event_id = e.event_id)
+  AND NOT EXISTS (SELECT 1 FROM delivery_outbox d WHERE d.kind = 'event_bundle' AND d.record_id = e.event_id)`
+
 // DeleteEventsBefore deletes at most limit old events that are not evidence
 // for a finding. It is intended for small periodic retention batches.
 func (s *Store) DeleteEventsBefore(ctx context.Context, cutoff time.Time, limit int) (int64, error) {
@@ -309,9 +313,7 @@ DELETE FROM events
 WHERE event_id IN (
     SELECT e.event_id
     FROM events e
-    WHERE e.event_time_ns < ?
-      AND NOT EXISTS (SELECT 1 FROM finding_events fe WHERE fe.event_id = e.event_id)
-      AND NOT EXISTS (SELECT 1 FROM delivery_outbox d WHERE d.kind = 'event_bundle' AND d.record_id = e.event_id)
+    WHERE e.event_time_ns < ?`+unreferencedEvent+`
     ORDER BY e.event_time_ns
     LIMIT ?
 )`, cutoff.UnixNano(), limit)

@@ -26,48 +26,37 @@ func (s *Service) retentionLoop(ctx context.Context) {
 	defer s.producerWG.Done()
 	run := func() {
 		cutoff := s.observationCutoff(time.Now().UTC())
-		for batch := 0; batch < maxRetentionBatchesPerRun; batch++ {
-			batchCtx, cancel := context.WithTimeout(ctx, retentionBatchDeadline)
-			deleted, err := s.store.DeleteEventsBefore(batchCtx, cutoff, retentionBatchSize)
-			timedOut := errors.Is(batchCtx.Err(), context.DeadlineExceeded)
-			cancel()
-			if err != nil {
-				if ctx.Err() == nil && !timedOut {
-					s.recordOperationalError(fmt.Errorf("event retention: %w", err))
-				}
-				return
-			}
-			if deleted < retentionBatchSize {
-				break
-			}
-			if !managedWait(ctx, retentionBatchPause) {
-				return
-			}
+		sweeps := []struct {
+			name     string
+			pageSize int
+			page     func(context.Context, time.Time, int) (bool, error)
+		}{
+			{"event", retentionBatchSize, s.store.SweepEventsBefore},
+			{"process", processSweepPageSize, s.store.SweepProcessesBefore},
 		}
-		// Keep the existing per-run row budget but bound every individual
-		// writer reservation and yield to ingestion between pages.
-		pageSize := processSweepPageSize
-		for pages := 0; pages < maxRetentionBatchesPerRun*retentionBatchSize/processSweepPageSize; pages++ {
-			pageCtx, cancel := context.WithTimeout(ctx, retentionBatchDeadline)
-			more, err := s.store.SweepProcessesBefore(pageCtx, cutoff, pageSize)
-			timedOut := errors.Is(pageCtx.Err(), context.DeadlineExceeded)
-			cancel()
-			if err != nil {
-				if ctx.Err() != nil {
+		for _, sweep := range sweeps {
+			pageSize := sweep.pageSize
+			for pages := 0; pages < maxRetentionBatchesPerRun*retentionBatchSize/sweep.pageSize; pages++ {
+				pageCtx, cancel := context.WithTimeout(ctx, retentionBatchDeadline)
+				more, err := sweep.page(pageCtx, cutoff, pageSize)
+				timedOut := errors.Is(pageCtx.Err(), context.DeadlineExceeded)
+				cancel()
+				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					if !timedOut {
+						s.recordOperationalError(fmt.Errorf("%s retention: %w", sweep.name, err))
+						return
+					}
+					// A cancelled transaction preserves its last committed cursor.
+					pageSize = max(1, pageSize/2)
+				} else if !more {
+					break
+				}
+				if !managedWait(ctx, retentionBatchPause) {
 					return
 				}
-				if !timedOut {
-					s.recordOperationalError(fmt.Errorf("process retention: %w", err))
-					return
-				}
-				// A cold or busy DB can yield mid-page. The transaction kept its
-				// previous cursor; retry smaller pages after giving writers time.
-				pageSize = max(1, pageSize/2)
-			} else if !more {
-				break
-			}
-			if !managedWait(ctx, retentionBatchPause) {
-				return
 			}
 		}
 		s.clearOperationError("retention")
