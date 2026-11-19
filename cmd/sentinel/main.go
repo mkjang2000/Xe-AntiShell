@@ -66,6 +66,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return writeCapacity(stdout, status, *jsonOutput)
 	case "observations":
 		return runObservations(ctx, client, remaining[1:], stdout, stderr, *jsonOutput)
+	case "service-inventory":
+		return runServiceInventory(ctx, client, remaining[1:], stdout, *jsonOutput)
 	case "rules":
 		if len(remaining) > 1 && remaining[1] == "compare" {
 			return runRuleComparison(ctx, remaining[2:], stdout, stderr, *jsonOutput)
@@ -268,6 +270,7 @@ Commands:
   findings [--limit N]
   rules [compare --help]
   observations [--limit N] [--service UNIT] [--protected-dir ABS] [--allowed-dir ABS]
+  service-inventory
   resources
   capacity
   managed status|enroll|challenge|authorize-removal|recover-removal|removal-check

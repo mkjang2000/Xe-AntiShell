@@ -565,6 +565,15 @@ memberships use the host policy. Enforcement also requires local termination
 permission and a successful identity check immediately before sending a signal.
 Central reports the signed policy revision confirmed by the agent.
 
+### Discovering listening services
+
+`sentinel service-inventory` lists TCP listeners from the agent's network
+namespace. Use `sentinel --json service-inventory` for structured output.
+Each listener shows the port, address family, binding scope and a systemd
+service when its membership can be verified. The managed heartbeat carries
+the same sample to Central. Listening inventory is independent of resource
+monitoring and security policy enforcement.
+
 ### Managed agent package updates
 
 RPM23 adds an independent updater service. Agents on earlier packages need one

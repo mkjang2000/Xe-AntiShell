@@ -36,6 +36,7 @@ Xe-AntiShell/
 │   │   ├── operation_events.go    # Typed operation validation and lifecycle-safe context observation
 │   │   ├── rules.go               # Effective detector policy and selected-source sensor evidence
 │   │   ├── application_policies.go # Select the signed detector and response for a verified system service
+│   │   ├── service_inventory.go  # Cache and report bounded TCP listeners independently of detection
 │   │   ├── rule_comparison.go     # Offline comparison of two configurations on the same JSONL sample
 │   │   ├── processing.go          # Durable event pipeline and persistence/response failure separation
 │   │   ├── capacity.go            # Local capacity readings and heartbeat delivery metrics
@@ -77,6 +78,7 @@ Xe-AntiShell/
 │   │   ├── policy_list.go         # Canonical empty upstream list and duplicate-key-safe decoding
 │   │   └── credential-policy.yaml # Compiled commit_creds old/new/TID/start/TGID/return sensor
 │   ├── procfs/                    # Minimal live process/cgroup snapshot and system-service identity
+│   │   └── listening_services*.go # Bounded TCP LISTEN and direct system service owner discovery
 │   ├── releasepublish/            # Explicit publisher commands, private-key file safety and manifest handling
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
 │   ├── storage/                   # Serialized SQLite persistence and embedded migrations

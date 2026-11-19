@@ -60,6 +60,7 @@ func TestCommandRejectsIgnoredArguments(t *testing.T) {
 		{"version", "extra"},
 		{"status", "extra"},
 		{"capabilities", "extra"},
+		{"service-inventory", "extra"},
 		{"events", "extra"},
 		{"findings", "extra"},
 		{"process-tree", "--pid", "1", "extra"},

@@ -63,6 +63,7 @@ type Service struct {
 	managedRuntime      *managedRuntime
 	updateManager       *updates.Manager
 	privilegeController *privileges.Controller
+	serviceInventory    atomic.Pointer[serviceInventorySnapshot]
 
 	eventQueue chan queuedEvent
 	// Only the queue processor updates this after the old subscription drains.
@@ -242,6 +243,7 @@ func (s *Service) Start(parent context.Context) error {
 	go s.retentionLoop(ctx)
 	s.producerWG.Add(1)
 	go s.privilegeLoop(ctx)
+	s.startServiceInventory(ctx)
 	return nil
 }
 
@@ -451,12 +453,14 @@ func (s *Service) capabilityValue(name string) model.Capability {
 
 func (s *Service) Status(ctx context.Context) (model.AgentStatus, error) {
 	status, _ := s.runtimeSnapshot()
+	s.addServiceInventory(status.CapabilityReport, time.Now().UTC())
 	s.addCapacity(ctx, status.CapabilityReport)
 	return status, nil
 }
 
 func (s *Service) Capabilities(_ context.Context) (model.CapabilityReport, error) {
 	_, report := s.runtimeSnapshot()
+	s.addServiceInventory(&report, time.Now().UTC())
 	return report, nil
 }
 

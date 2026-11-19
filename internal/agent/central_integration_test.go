@@ -170,6 +170,7 @@ func TestIndependentCentralAppliesApplicationPolicyRevision(t *testing.T) {
 	service, store := newTestService(t, config.CollectorDisabled, func(cfg *config.Config) {
 		cfg.Agent.ID = id
 	})
+	service.processSource = testServiceInventorySource{}
 	service.metrics = hostmetrics.New(t.TempDir(), t.TempDir())
 	t.Cleanup(func() { shutdownService(t, service); _ = store.Close() })
 	startService(t, service)
@@ -218,14 +219,27 @@ func TestIndependentCentralAppliesApplicationPolicyRevision(t *testing.T) {
 		t.Fatalf("assign application policies: %v", err)
 	}
 	awaitIndependentCentral(t, ctx, "application revision and digest", func() bool {
-		applied := heartbeat().PolicyStatus
+		report := heartbeat()
+		applied := report.PolicyStatus
 		signed, err := store.Policy(ctx)
 		if err != nil || applied.ActiveRevision != 1 || applied.Result != "applied" || len(signed.Policy.Applications) != 2 {
 			return false
 		}
 		hash, err := contract.PolicyDigest(signed)
-		return err == nil && hash != "" && applied.PolicySHA256 == hash &&
-			signed.Policy.Applications[0].Response.Mode == "would_block" &&
+		if err != nil || hash == "" || applied.PolicySHA256 != hash || len(report.Resources) != 0 || report.Status.CapabilityReport == nil {
+			return false
+		}
+		// Inventory reaches the current enrollment through an unmodified
+		// Central even when the managed resource monitor is disabled.
+		capability := report.Status.CapabilityReport.Capabilities[model.ServiceInventoryCapability]
+		var inventory model.ServiceInventory
+		if capability.Details["contract"] != model.ServiceInventoryContract ||
+			json.Unmarshal([]byte(capability.Details["snapshot"]), &inventory) != nil ||
+			inventory.State != "complete" || len(inventory.Listeners) != 1 ||
+			inventory.Listeners[0] != (model.ServiceListener{Service: "nginx.service", Port: 443, Family: "ipv4", Binding: "wildcard"}) {
+			return false
+		}
+		return signed.Policy.Applications[0].Response.Mode == "would_block" &&
 			signed.Policy.Applications[1].Response.Mode == "observe"
 	})
 
