@@ -22,6 +22,8 @@ type Policy struct {
 	Response      ResponsePolicy   `json:"response"`
 	UninstallMode string           `json:"uninstall_mode"`
 	Monitoring    MonitoringPolicy `json:"monitoring"`
+
+	Applications []ApplicationPolicy `json:"applications,omitempty"`
 }
 
 // DetectionPolicy omits a false ExtendedProcessRules value to preserve the signed
@@ -61,35 +63,50 @@ type SignedPolicy struct {
 }
 
 func (p Policy) Validate() error {
-	if p.Detection.RootExecAlerts != "" && (!p.Detection.PrivilegeRules || (p.Detection.RootExecAlerts != "suspicious" && p.Detection.RootExecAlerts != "all")) {
-		return errors.New("invalid privilege root execution alert mode")
-	}
 	if p.SchemaVersion != SchemaVersion || !validIdentifier(p.ID, 128) || !validIdentifier(p.AgentID, 128) || !validIdentifier(p.EnrollmentID, 160) || p.Revision < 1 || p.Revision > math.MaxInt64 {
 		return errors.New("invalid policy version or identity")
 	}
 	if p.IssuedAt.IsZero() || p.ExpiresAt.IsZero() || !p.ExpiresAt.After(p.IssuedAt) || p.ExpiresAt.Sub(p.IssuedAt) > 366*24*time.Hour {
 		return errors.New("invalid policy validity interval")
 	}
-	if err := validateValues(p.Detection.WebExecutables, 256, true); err != nil {
+	if err := validateDetectionAndResponse(p.Detection, p.Response); err != nil {
+		return err
+	}
+	switch p.UninstallMode {
+	case "allow", "approval_required", "deny":
+	default:
+		return errors.New("unsupported uninstall mode")
+	}
+	if p.Monitoring.SampleIntervalSeconds < 5 || p.Monitoring.SampleIntervalSeconds > 3600 || p.Monitoring.ProcessLimit < 1 || p.Monitoring.ProcessLimit > 2000 {
+		return errors.New("monitoring limits are outside allowed bounds")
+	}
+	return validateApplications(p.Applications, p.Response.Mode)
+}
+
+func validateDetectionAndResponse(d DetectionPolicy, r ResponsePolicy) error {
+	if d.RootExecAlerts != "" && (!d.PrivilegeRules || (d.RootExecAlerts != "suspicious" && d.RootExecAlerts != "all")) {
+		return errors.New("invalid privilege root execution alert mode")
+	}
+	if err := validateValues(d.WebExecutables, 256, true); err != nil {
 		return fmt.Errorf("web executables: %w", err)
 	}
-	if err := validateValues(p.Detection.Shells, 64, true); err != nil {
+	if err := validateValues(d.Shells, 64, true); err != nil {
 		return fmt.Errorf("shells: %w", err)
 	}
-	if err := validateValues(p.Detection.WebServices, 1024, false); err != nil {
+	if err := validateValues(d.WebServices, 1024, false); err != nil {
 		return fmt.Errorf("web services: %w", err)
 	}
-	if err := validateSignedServiceObservations(p.Detection.ServiceObservations); err != nil {
+	if err := validateSignedServiceObservations(d.ServiceObservations); err != nil {
 		return err
 	}
-	if err := ValidateServiceRuleControls(p.Detection.ServiceRuleControls); err != nil {
+	if err := ValidateServiceRuleControls(d.ServiceRuleControls); err != nil {
 		return err
 	}
-	if len(p.Detection.AllowedPairs) > 512 {
+	if len(d.AllowedPairs) > 512 {
 		return errors.New("too many detection exceptions")
 	}
 	seen := map[string]struct{}{}
-	for _, pair := range p.Detection.AllowedPairs {
+	for _, pair := range d.AllowedPairs {
 		parts := strings.Split(pair, ":")
 		if len(parts) != 2 || !validName(parts[0], false) || !validName(parts[1], true) {
 			return errors.New("invalid detection exception")
@@ -100,41 +117,33 @@ func (p Policy) Validate() error {
 		}
 		seen[key] = struct{}{}
 	}
-	if p.Detection.Enabled && !p.Detection.PrivilegeRules && (len(p.Detection.Shells) == 0 || len(p.Detection.WebExecutables)+len(p.Detection.WebServices) == 0) {
+	if d.Enabled && !d.PrivilegeRules && (len(d.Shells) == 0 || len(d.WebExecutables)+len(d.WebServices) == 0) {
 		return errors.New("enabled detection requires origins and shells")
 	}
-	switch p.Response.Mode {
+	switch r.Mode {
 	case "observe", "would_block", "enforce":
 	default:
 		return errors.New("unsupported response mode")
 	}
-	switch p.Response.Action {
+	switch r.Action {
 	case "none", "terminate":
 	default:
 		return errors.New("unsupported response action")
 	}
-	if p.Response.Mode == "enforce" && p.Response.Action == "none" {
+	if r.Mode == "enforce" && r.Action == "none" {
 		return errors.New("enforcement requires an explicit action")
 	}
-	if p.Response.RiskThreshold < 0 || p.Response.RiskThreshold > 100 || math.IsNaN(p.Response.MinConfidence) || math.IsInf(p.Response.MinConfidence, 0) || p.Response.MinConfidence < 0 || p.Response.MinConfidence > 1 {
+	if r.RiskThreshold < 0 || r.RiskThreshold > 100 || math.IsNaN(r.MinConfidence) || math.IsInf(r.MinConfidence, 0) || r.MinConfidence < 0 || r.MinConfidence > 1 {
 		return errors.New("invalid response threshold")
 	}
-	if err := validateValues(p.Response.RequiredCapabilities, 32, false); err != nil {
+	if err := validateValues(r.RequiredCapabilities, 32, false); err != nil {
 		return fmt.Errorf("response capabilities: %w", err)
 	}
-	if p.Response.Mode != "observe" && (p.Response.Action != "terminate" || len(p.Response.RequiredCapabilities) == 0 || p.Response.RiskThreshold == 0 || p.Response.MinConfidence == 0) {
+	if r.Mode != "observe" && (r.Action != "terminate" || len(r.RequiredCapabilities) == 0 || r.RiskThreshold == 0 || r.MinConfidence == 0) {
 		return errors.New("response requires an action, explicit capability gates, and nonzero thresholds")
 	}
-	if p.Response.Mode != "observe" && !p.Detection.Enabled {
+	if r.Mode != "observe" && !d.Enabled {
 		return errors.New("response requires enabled detection")
-	}
-	switch p.UninstallMode {
-	case "allow", "approval_required", "deny":
-	default:
-		return errors.New("unsupported uninstall mode")
-	}
-	if p.Monitoring.SampleIntervalSeconds < 5 || p.Monitoring.SampleIntervalSeconds > 3600 || p.Monitoring.ProcessLimit < 1 || p.Monitoring.ProcessLimit > 2000 {
-		return errors.New("monitoring limits are outside allowed bounds")
 	}
 	return nil
 }

@@ -164,6 +164,10 @@ type Finding struct {
 	PolicyRevision   uint64       `json:"policy_revision,omitempty" yaml:"policy_revision,omitempty"`
 	RiskFactors      []RiskFactor `json:"risk_factors,omitempty" yaml:"risk_factors,omitempty"`
 	DetectionOnly    bool         `json:"detection_only,omitempty" yaml:"detection_only,omitempty"`
+
+	ApplicationPolicyID      string `json:"application_policy_id,omitempty" yaml:"application_policy_id,omitempty"`
+	ApplicationPolicyVersion uint64 `json:"application_policy_version,omitempty" yaml:"application_policy_version,omitempty"`
+	ApplicationService       string `json:"application_service,omitempty" yaml:"application_service,omitempty"`
 }
 
 type AgentMode string

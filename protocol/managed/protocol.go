@@ -79,6 +79,7 @@ type PolicyStatus struct {
 	Result          string     `json:"result"`
 	Error           string     `json:"error,omitempty"`
 	AppliedAt       *time.Time `json:"applied_at,omitempty"`
+	PolicySHA256    string     `json:"policy_sha256,omitempty"`
 }
 
 type Heartbeat struct {
