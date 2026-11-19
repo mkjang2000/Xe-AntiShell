@@ -60,7 +60,7 @@ curl() {
   case "$4" in
     https://raw.githubusercontent.com/mkjang2000/Xe-AntiShell/*/packaging/install-wizard.sh)
       cp "$XEAS_WIZARD_FIXTURE" "$output" ;;
-    https://github.com/mkjang2000/Xe-AntiShell/releases/download/v0.1.0-r37/*)
+    https://github.com/mkjang2000/Xe-AntiShell/releases/download/v0.1.0-r38/*)
       printf 'rpm fixture %s\n' "${4##*/}" > "$output" ;;
     *) return 1 ;;
   esac
@@ -69,10 +69,10 @@ sha256sum() {
   local content
   content=$(cat)
   case "$content" in
-    'rpm fixture '*el9*) printf '%s  -\n' 79e20b44addae3947b77d85fb3a1f7dee2050bf99efbcc401eeedeffcfb44a15 ;;
+    'rpm fixture '*el9*) printf '%s  -\n' 4cb5ea351a1182dcf0e6ebc7a81d2f9c1db45e1b9d8590b281524d144d652d25 ;;
     'rpm fixture '*el10*)
       if [[ -e "$work/corrupt" ]]; then printf 'wrong  -\n'
-      else printf '%s  -\n' 43314708a6e03d5d872aaf73f74aa72456335bcfa20ec4e88cf50fa47763b638; fi ;;
+      else printf '%s  -\n' a9daac6b62a6ed1b912346c3b388a48d2a446719bff8cd28bca25b9144ab71b3; fi ;;
     *) printf '%s\n' "$content" | command sha256sum ;;
   esac
 }
@@ -87,9 +87,9 @@ rpm() {
       [[ -f "${@: -1}" ]] || return 1
       case "$3" in
         '%{NAME}|%{EPOCHNUM}|%{VERSION}|%{RELEASE}|%{ARCH}')
-          if [[ -e "$work/wrong-header" ]]; then printf 'another-package|0|0.1.0|37.el10|x86_64'
-          elif [[ "${@: -1}" == *el9* ]]; then printf 'xe-antishell|0|0.1.0|37.el9|x86_64'
-          else printf 'xe-antishell|0|0.1.0|37.el10|x86_64'; fi ;;
+          if [[ -e "$work/wrong-header" ]]; then printf 'another-package|0|0.1.0|38.el10|x86_64'
+          elif [[ "${@: -1}" == *el9* ]]; then printf 'xe-antishell|0|0.1.0|38.el9|x86_64'
+          else printf 'xe-antishell|0|0.1.0|38.el10|x86_64'; fi ;;
         '%{NAME}|%{ARCH}|%{RELEASE}')
           case "${@: -1}" in
             *central*) printf 'xe-antishell-central|x86_64|17.el10' ;;
@@ -290,8 +290,8 @@ if run_install 7; then exit 1; else result=$?; fi
             else:
                 run_terminal(work, cases[0][1])
                 calls = (work / "calls").read_text()
-                assert f"/v0.1.0-r37/xe-antishell-0.1.0-37.el{major}.x86_64.rpm" in calls
-                assert any(line.startswith("rpm -Uvh ") and f"37.el{major}.x86_64.rpm" in line for line in calls.splitlines())
+                assert f"/v0.1.0-r38/xe-antishell-0.1.0-38.el{major}.x86_64.rpm" in calls
+                assert any(line.startswith("rpm -Uvh ") and f"38.el{major}.x86_64.rpm" in line for line in calls.splitlines())
     for name, exchanges in cases:
         with tempfile.TemporaryDirectory(prefix="xeas-wizard-test-") as directory:
             work = fixture(directory)
