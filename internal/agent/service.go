@@ -348,6 +348,7 @@ func (s *Service) Submit(ctx context.Context, event model.Event) error {
 }
 
 func (s *Service) submit(ctx context.Context, event model.Event, generation uint64) error {
+	detection := s.detectionState.Load()
 	s.submitMu.Lock()
 	if !s.accepting {
 		s.submitMu.Unlock()
@@ -388,7 +389,7 @@ func (s *Service) submit(ctx context.Context, event model.Event, generation uint
 	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
 	select {
-	case s.eventQueue <- queuedEvent{Event: event, generation: generation, submittedAt: time.Now()}:
+	case s.eventQueue <- queuedEvent{Event: event, generation: generation, submittedAt: time.Now(), detection: detection}:
 		observeMax(&s.capacity.highWater, uint64(len(s.eventQueue)))
 		return nil
 	case <-ctx.Done():

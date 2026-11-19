@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	contract "github.com/mkjang2000/Xe-AntiShell/protocol/integrity"
 	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
 	"xe-antishell/internal/config"
 	"xe-antishell/internal/hostmetrics"
@@ -154,6 +155,88 @@ type centralAgentSnapshot struct {
 	ID         string            `json:"agent_id"`
 	Enrollment string            `json:"enrollment_id"`
 	Heartbeat  managed.Heartbeat `json:"heartbeat"`
+}
+
+func TestIndependentCentralAppliesApplicationPolicyRevision(t *testing.T) {
+	binary := os.Getenv("XEAS_CENTRAL_TEST_BINARY")
+	if binary == "" {
+		t.Skip("set XEAS_CENTRAL_TEST_BINARY to test the independent central component")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	central := newIndependentCentral(t, ctx, binary)
+	central.start(t, ctx)
+	const id = "application-pilot"
+	service, store := newTestService(t, config.CollectorDisabled, func(cfg *config.Config) {
+		cfg.Agent.ID = id
+	})
+	service.metrics = hostmetrics.New(t.TempDir(), t.TempDir())
+	t.Cleanup(func() { shutdownService(t, service); _ = store.Close() })
+	startService(t, service)
+	tokenFile := filepath.Join(t.TempDir(), "enrollment-token")
+	central.run(t, ctx, "enrollment-token", "--state-dir", central.state, "--agent-id", id, "--output-file", tokenFile)
+	recovery, err := managed.NewChallenge()
+	if err != nil {
+		t.Fatal("create test recovery credential")
+	}
+	if _, err := service.EnrollWithRecovery(ctx, "https://"+central.agentAddress, id, central.ca, strings.TrimSpace(string(readCentralTestFile(t, tokenFile))), recovery); err != nil {
+		t.Fatal(err)
+	}
+	status, err := service.ManagedStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	heartbeat := func() managed.Heartbeat {
+		var agents []centralAgentSnapshot
+		if central.request(ctx, http.MethodGet, "/admin/agents", nil, &agents) == nil && len(agents) == 1 && agents[0].Enrollment == status.EnrollmentID {
+			return agents[0].Heartbeat
+		}
+		return managed.Heartbeat{}
+	}
+	awaitIndependentCentral(t, ctx, "application capability", func() bool {
+		report := heartbeat().Status.CapabilityReport
+		return report != nil && report.Capabilities[managed.ApplicationPoliciesCapability].Details["contract"] == "1"
+	})
+	policy := managed.DefaultPolicy(id, status.EnrollmentID, 1, time.Now().UTC())
+	policy.Monitoring = managed.MonitoringPolicy{Enabled: false, SampleIntervalSeconds: 5, ProcessLimit: 1}
+	for _, entry := range []struct{ service, policyID, mode string }{
+		{"nginx.service", "web-test", "would_block"}, {"pm2-deploy.service", "deploy-observe", "observe"},
+	} {
+		app := managed.ApplicationPolicy{
+			Service: entry.service, PolicyID: entry.policyID, PolicyVersion: 1,
+			Detection: managed.DetectionPolicy{Enabled: true, WebServices: []string{entry.service}, Shells: []string{"bash"}},
+			Response:  policy.Response,
+		}
+		app.Response.Mode = entry.mode
+		if entry.mode == "would_block" {
+			app.Response.Action = "terminate"
+			app.Response.RequiredCapabilities = []string{"observation.process_exec"}
+		}
+		policy.Applications = append(policy.Applications, app)
+	}
+	if err := central.request(ctx, http.MethodPost, "/admin/policy", policy, nil); err != nil {
+		t.Fatalf("assign application policies: %v", err)
+	}
+	awaitIndependentCentral(t, ctx, "application revision and digest", func() bool {
+		applied := heartbeat().PolicyStatus
+		signed, err := store.Policy(ctx)
+		if err != nil || applied.ActiveRevision != 1 || applied.Result != "applied" || len(signed.Policy.Applications) != 2 {
+			return false
+		}
+		hash, err := contract.PolicyDigest(signed)
+		return err == nil && hash != "" && applied.PolicySHA256 == hash &&
+			signed.Policy.Applications[0].Response.Mode == "would_block" &&
+			signed.Policy.Applications[1].Response.Mode == "observe"
+	})
+
+	policy.Revision, policy.Applications = 2, nil
+	if err := central.request(ctx, http.MethodPost, "/admin/policy", policy, nil); err != nil {
+		t.Fatalf("assign higher revision with legacy host policy: %v", err)
+	}
+	awaitIndependentCentral(t, ctx, "reapply host-only policy", func() bool {
+		applied := heartbeat().PolicyStatus
+		return applied.ActiveRevision == 2 && applied.Result == "applied" && applied.PolicySHA256 == ""
+	})
 }
 
 func TestIndependentCentralWithMultipleAgents(t *testing.T) {

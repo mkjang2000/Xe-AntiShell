@@ -92,3 +92,19 @@ func TestTerminateRefusesUncertainIdentityWithoutSignaling(t *testing.T) {
 		t.Fatal("owned target exited during refusal tests")
 	}
 }
+
+func TestTerminateInServiceRequiresFinalLiveUnitProof(t *testing.T) {
+	cmd, event := ownSleep(t)
+	err := TerminateInService(context.Background(), event, time.Now(), "xeas-application-test-foreign.service")
+	if err == nil || !strings.Contains(err.Error(), "direct system service") {
+		t.Fatalf("expected refusal on final application cgroup check: %v", err)
+	}
+	fd, err := unix.PidfdOpen(cmd.Process.Pid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fd)
+	if ready, err := unix.Poll([]unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}, 0); ready != 0 || err != nil {
+		t.Fatalf("refused application action signaled the process: %d %v", ready, err)
+	}
+}

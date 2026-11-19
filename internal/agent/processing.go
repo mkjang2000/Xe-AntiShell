@@ -16,6 +16,7 @@ type queuedEvent struct {
 	model.Event
 	generation  uint64
 	submittedAt time.Time
+	detection   *detectionState
 }
 
 type eventProcessingError struct {
@@ -52,7 +53,11 @@ func (s *Service) processQueuedEvent(item queuedEvent) {
 		s.lineage.ForgetCurrentPIDs()
 		s.processedGeneration = item.generation
 	}
-	if err := s.processObservation(context.Background(), &item.Event, item.generation, item.submittedAt, time.Now()); err != nil {
+	state := item.detection
+	if state == nil {
+		state = s.detectionState.Load()
+	}
+	if err := s.processCapturedObservation(context.Background(), &item.Event, item.generation, item.submittedAt, time.Now(), state); err != nil {
 		s.recordProcessingFailure(err)
 	}
 }
@@ -75,7 +80,10 @@ func (s *Service) recordProcessingFailure(err error) {
 }
 
 func (s *Service) processObservation(ctx context.Context, event *model.Event, generation uint64, submittedAt, evaluationTime time.Time) error {
-	detection := s.detectionState.Load()
+	return s.processCapturedObservation(ctx, event, generation, submittedAt, evaluationTime, s.detectionState.Load())
+}
+
+func (s *Service) processCapturedObservation(ctx context.Context, event *model.Event, generation uint64, submittedAt, evaluationTime time.Time, detection *detectionState) error {
 	if err := s.normalizeEvent(event); err != nil {
 		s.parseErrs.Add(1)
 		s.updateCounters()
@@ -86,6 +94,7 @@ func (s *Service) processObservation(ctx context.Context, event *model.Event, ge
 		s.observeTetragonAncestors(ctx, event)
 	}
 
+	var app *applicationDetector
 	switch event.Type {
 	case "process.exec":
 		if event.Process.PID > 0 && event.Process.OriginService == "" {
@@ -94,7 +103,8 @@ func (s *Service) processObservation(ctx context.Context, event *model.Event, ge
 				event.Process.OriginService, _ = s.processSource.OriginService(ctx, event.Process.PID)
 			}
 		}
-		if event.Source == "audit" && s.config.Collector.Audit.OnlyDetectionOrigins && !detection.engine.IsPrivilegeCandidate(*event) {
+		app = s.applicationForEvent(ctx, *event, detection)
+		if app == nil && event.Source == "audit" && s.config.Collector.Audit.OnlyDetectionOrigins && !detection.engine.IsPrivilegeCandidate(*event) {
 			if _, matched := detection.engine.MatchWebOrigin(*event, s.lineage); !matched {
 				return nil
 			}
@@ -109,20 +119,17 @@ func (s *Service) processObservation(ctx context.Context, event *model.Event, ge
 		if err := s.observeOperationContext(ctx, event); err != nil {
 			return &eventProcessingError{operation: "event_store", cause: err}
 		}
+		app = s.applicationForEvent(ctx, *event, detection)
 	case "process.exit":
 		if process, ok := s.lineage.ExitObserved(event.Process.Key, event.Process.PID, event.EventTime, event.IngestTime); ok {
 			event.Process = process
 		}
 	}
-	if event.Source == "tetragon" && !s.retainTetragonEventWithDetector(*event, detection.engine) {
+	if event.Source == "tetragon" && !s.retainTetragonEventWithDetector(*event, detection.engine, app != nil) {
 		return nil
 	}
 
-	var findings []model.Finding
-	if detection.enabled {
-		findings = detection.engine.EvaluateAt(*event, s.lineage, evaluationTime)
-		s.applyResponseDecisions(findings, detection.policy)
-	}
+	findings := s.evaluateObservation(*event, detection, app, evaluationTime)
 	// Evidence, derived findings, and managed delivery are one durable unit.
 	inserted, err := s.store.PersistObservationWithHistory(ctx, *event, findings, s.config.Limits.ObservationHistoryMinutes > 0)
 	if err != nil {
@@ -142,7 +149,7 @@ func (s *Service) processObservation(ctx context.Context, event *model.Event, ge
 				continue
 			}
 			saved, err := s.store.GetFinding(ctx, findings[i].ID)
-			if errors.Is(err, storage.ErrNotFound) || err == nil && saved.PolicyRevision != findings[i].PolicyRevision {
+			if errors.Is(err, storage.ErrNotFound) || err == nil && !sameFindingPolicy(saved, findings[i]) {
 				findings[i].ResponseDecision = "observe"
 				continue
 			}
@@ -163,6 +170,11 @@ func (s *Service) processObservation(ctx context.Context, event *model.Event, ge
 		s.clearOperationError("response")
 	}
 	return nil
+}
+
+func sameFindingPolicy(a, b model.Finding) bool {
+	return a.PolicyRevision == b.PolicyRevision && a.ApplicationService == b.ApplicationService &&
+		a.ApplicationPolicyID == b.ApplicationPolicyID && a.ApplicationPolicyVersion == b.ApplicationPolicyVersion
 }
 
 func (s *Service) markEventProcessed(at time.Time, generation uint64, inserted bool) {

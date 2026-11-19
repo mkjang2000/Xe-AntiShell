@@ -114,10 +114,7 @@ func (e *Engine) Evaluate(event model.Event, lineage AncestorProvider) []model.F
 
 // EvaluateAt uses the local policy-evaluation clock, independent of source time.
 func (e *Engine) EvaluateAt(event model.Event, lineage AncestorProvider, at time.Time) []model.Finding {
-	r := ruleDecision{at: at}
-	if controls := e.ruleControls[event.Process.OriginService]; len(controls) > 0 && evidenceFieldAvailable(event, "process.origin_service") && evidenceFieldAvailable(event, model.DirectServiceEvidence) {
-		r.controls = controls
-	}
+	r := e.controlsAt(event, at)
 	if event.Type == "file.write" || event.Type == "network.connect" {
 		return r.filter(e.evaluateServiceObservation(event))
 	}
@@ -128,6 +125,47 @@ func (e *Engine) EvaluateAt(event model.Event, lineage AncestorProvider, at time
 		return findings
 	}
 	return append(findings, r.filter(e.evaluatePrivilege(event, lineage, r))...)
+}
+
+// DirectService requires source or live process evidence. A name inherited
+// from a parent remains useful for detection but cannot select an application.
+func DirectService(event model.Event) string {
+	if event.Process.OriginService != "" && evidenceFieldAvailable(event, "process.origin_service") && evidenceFieldAvailable(event, model.DirectServiceEvidence) {
+		return event.Process.OriginService
+	}
+	return ""
+}
+
+// ApplicationServiceCandidate also rejects incomplete or redacted identity
+// fields before the agent checks the live host cgroup.
+func ApplicationServiceCandidate(event model.Event) string {
+	if event.Process.PID < 1 || !filepath.IsAbs(event.Process.Exe) || event.Process.StartTime.IsZero() {
+		return ""
+	}
+	for _, field := range []string{"source", "boot_id", "event_time", "process.pid", "process.exe", "process.start_time"} {
+		if !evidenceFieldAvailable(event, field) {
+			return ""
+		}
+	}
+	if event.Source == "tetragon" && (event.Process.ExecID == "" || !evidenceFieldAvailable(event, "process.exec_id")) {
+		return ""
+	}
+	return DirectService(event)
+}
+
+func (e *Engine) controlsAt(event model.Event, at time.Time) ruleDecision {
+	r := ruleDecision{at: at}
+	if len(e.ruleControls) > 0 {
+		r.controls = e.ruleControls[DirectService(event)]
+	}
+	return r
+}
+
+// EvaluatePrivilegeAt retains the host-wide profile when an application
+// independently controls web detections and their response.
+func (e *Engine) EvaluatePrivilegeAt(event model.Event, lineage AncestorProvider, at time.Time) []model.Finding {
+	r := e.controlsAt(event, at)
+	return r.filter(e.evaluatePrivilege(event, lineage, r))
 }
 
 func (e *Engine) evaluateWeb(event model.Event, lineage AncestorProvider, r ruleDecision) []model.Finding {

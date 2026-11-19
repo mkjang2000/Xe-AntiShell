@@ -44,6 +44,10 @@ func (s staticProcessSource) OriginService(context.Context, int) (string, error)
 	return s.origin, nil
 }
 
+func (s staticProcessSource) SystemService(ctx context.Context, event model.Event) (string, error) {
+	return s.OriginService(ctx, event.Process.PID)
+}
+
 func TestInvalidEventDoesNotPoisonRuntimeState(t *testing.T) {
 	service, store := newTestService(t, config.CollectorDisabled, nil)
 	startService(t, service)

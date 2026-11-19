@@ -18,3 +18,7 @@ func Capability(bool) model.Capability {
 func Terminate(context.Context, model.Event, time.Time) error {
 	return errors.New("response refused: pidfd termination requires Linux")
 }
+
+func TerminateInService(context.Context, model.Event, time.Time, string) error {
+	return errors.New("response refused: pidfd termination requires Linux")
+}

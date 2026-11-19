@@ -540,7 +540,7 @@ separately dispatched `sentinel-updater` helper.
 The agent RPM owns no central files or service hooks. Distribution RPM triggers
 can still consume pending service restart markers from other packages.
 The released agent pins the published
-[`protocol v0.4.0`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.4.0/protocol)
+[`protocol v0.7.0`](https://github.com/mkjang2000/Xe-AntiShell/tree/protocol/v0.7.0/protocol)
 module, which includes optional typed execution/file/network/credential facts and separate
 signed package update contracts. Existing
 signature domains, stored identities and approved policy bytes are unchanged;
@@ -553,6 +553,17 @@ non-loopback HTTPS listener and separately trusted CA delivery. The operator
 API remains loopback-only. The central project provides its own authenticated
 fleet console; PostgreSQL, RBAC and automatic certificate renewal remain future work.
 Preserve the offline recovery file outside the monitored host.
+
+### Application policies
+
+An enrolled agent can receive one signed policy revision with a host-wide
+observation policy and separate policy versions for systemd services. For
+example, `nginx.service` can use simulated response while `pm2-app.service`
+uses observation. The agent checks process identity and membership in a
+cgroup v2 system service before selecting an application policy. Unverified
+memberships use the host policy. Enforcement also requires local termination
+permission and a successful identity check immediately before sending a signal.
+Central reports the signed policy revision confirmed by the agent.
 
 ### Managed agent package updates
 

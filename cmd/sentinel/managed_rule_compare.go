@@ -39,6 +39,9 @@ func compareManagedInput(ctx context.Context, inputPath, hostPath, eventPath str
 	if err = managed.DecodeStrict(inputJSON, 3*managed.MaxPolicyBytes, &input); err != nil {
 		return err
 	}
+	if len(input.Current.Applications) != 0 || len(input.Candidate.Applications) != 0 {
+		return errors.New("offline comparison cannot verify application service membership; use a scoped deployment in observe or would_block mode")
+	}
 	id, err := input.Digest()
 	if err != nil {
 		return err

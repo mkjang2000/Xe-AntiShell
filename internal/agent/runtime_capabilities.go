@@ -3,6 +3,8 @@ package agent
 import (
 	"time"
 
+	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
+
 	"xe-antishell/internal/capability"
 	"xe-antishell/internal/collector"
 	"xe-antishell/internal/detection"
@@ -116,6 +118,13 @@ func (s *Service) runtimeSnapshotFor(policy *detectionState) (model.AgentStatus,
 	report.Capabilities["detection.service_rule_controls"] = model.Capability{
 		Name: "detection.service_rule_controls", Provider: "local-detector", State: model.CapabilitySupported, Implementation: "implemented", RuntimeState: "available",
 		Reason: "서비스별 규칙·만료 예외 지원", Details: map[string]string{"contract": "1"},
+	}
+	if s.supportsApplicationPolicies() {
+		report.Capabilities[managed.ApplicationPoliciesCapability] = model.Capability{
+			Name: managed.ApplicationPoliciesCapability, Provider: "local-detector", State: model.CapabilitySupported,
+			Implementation: "implemented", RuntimeState: "available", Reason: "직접 확인한 시스템 서비스별 서명 정책 지원",
+			Details: map[string]string{"contract": "1"},
+		}
 	}
 	s.applyPrivilegeCapabilities(&status, &report, evidence, policy.privilegeEnabled())
 	status.CapabilityReport = &report

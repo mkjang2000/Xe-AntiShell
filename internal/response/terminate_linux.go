@@ -54,6 +54,12 @@ func Capability(enabled bool) model.Capability {
 // process with pidfd, and sends SIGTERM. Linux pidfds pin process identity, not
 // an exec generation; a final concurrent exec remains a documented limitation.
 func Terminate(ctx context.Context, event model.Event, now time.Time) error {
+	return TerminateInService(ctx, event, now, "")
+}
+
+// TerminateInService additionally remeasures host system unit membership
+// immediately before signaling when the authorization came from an application.
+func TerminateInService(ctx context.Context, event model.Event, now time.Time, service string) error {
 	if err := preconditions(event, now); err != nil {
 		return err
 	}
@@ -79,6 +85,12 @@ func Terminate(ctx context.Context, event model.Event, now time.Time) error {
 		poll := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
 		if ready, err := unix.Poll(poll, 0); err != nil || ready != 0 {
 			return errors.New("response refused: pinned process already exited")
+		}
+	}
+	if service != "" {
+		current, err := procfs.New("/proc").SystemService(ctx, event)
+		if err != nil || current != service || event.Process.OriginService != service {
+			return errors.New("response refused: direct system service no longer matches the application policy")
 		}
 	}
 	if err := preconditions(event, time.Now().UTC()); err != nil {

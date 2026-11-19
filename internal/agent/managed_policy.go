@@ -23,6 +23,8 @@ type detectionState struct {
 	enabled      bool
 	policy       *managed.Policy
 	policySHA256 string
+	expired      bool
+	applications map[string]*applicationDetector
 }
 
 func (state *detectionState) serviceObservationSource() string {
@@ -66,16 +68,26 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 	runtime.mu.Lock()
 	runtime.status.Policy.DesiredRevision = policy.Revision
 	runtime.mu.Unlock()
-	if policy.Response.Mode == "enforce" {
-		if !s.config.Response.AllowTerminate {
-			return errors.New("host-local termination opt-in is disabled")
-		}
-		if response.Capability(true).State != model.CapabilitySupported {
-			return errors.New("pidfd termination is unsupported on this host")
-		}
-	}
 	if err := s.validatePolicyCoverage(policy); err != nil {
 		return err
+	}
+	var apps map[string]*applicationDetector
+	if len(policy.Applications) > 0 {
+		if !s.supportsApplicationPolicies() {
+			return errors.New("application policies require direct system service attribution")
+		}
+		apps = make(map[string]*applicationDetector, len(policy.Applications))
+	}
+	for _, app := range policy.Applications {
+		if app.Response.Mode == "enforce" && !privilegeArgumentsUsable(s.config.Collector.Tetragon.Args) {
+			return fmt.Errorf("application %s: enforcement requires an unfiltered Tetragon event source", app.Service)
+		}
+		effective := policy
+		effective.Detection, effective.Response, effective.Applications = app.Detection, app.Response, nil
+		if err := s.validatePolicyCoverage(effective); err != nil {
+			return fmt.Errorf("application %s: %w", app.Service, err)
+		}
+		apps[app.Service] = &applicationDetector{definition: app, effective: &effective, engine: detectorForConfig(s.config.WithManagedDetection(app.Detection))}
 	}
 	digest, err := contract.PolicyDigest(signed)
 	if err != nil {
@@ -84,22 +96,34 @@ func (s *Service) applyManagedPolicy(ctx context.Context, signed managed.SignedP
 	if err := s.store.SavePolicy(ctx, signed); err != nil {
 		return err
 	}
+	state := &detectionState{
+		engine:  detectorForConfig(s.config.WithManagedDetection(policy.Detection)),
+		enabled: policy.Detection.Enabled, policy: &policy, policySHA256: digest, applications: apps,
+	}
 	result, policyError := "applied", ""
 	if !now.Before(policy.ExpiresAt) {
-		policy.Response.Mode, policy.Response.Action = "observe", "none"
+		state = state.withExpiredResponse()
 		result, policyError = "stale", "approved policy expired; detection continues with response disabled"
 	}
-	s.detectionState.Store(&detectionState{
-		engine:  detectorForConfig(s.config.WithManagedDetection(policy.Detection)),
-		enabled: policy.Detection.Enabled, policy: &policy, policySHA256: digest,
-	})
+	s.detectionState.Store(state)
 	runtime.mu.Lock()
 	runtime.status.Policy = managed.PolicyStatus{DesiredRevision: policy.Revision, ActiveRevision: policy.Revision, Result: result, Error: policyError, AppliedAt: &now}
+	if len(apps) > 0 {
+		runtime.status.Policy.PolicySHA256 = digest
+	}
 	runtime.mu.Unlock()
 	return nil
 }
 
 func (s *Service) validatePolicyCoverage(policy managed.Policy) error {
+	if policy.Response.Mode == "enforce" {
+		if !s.config.Response.AllowTerminate {
+			return errors.New("host-local termination opt-in is disabled")
+		}
+		if response.Capability(true).State != model.CapabilitySupported {
+			return errors.New("pidfd termination is unsupported on this host")
+		}
+	}
 	if policy.Detection.PrivilegeRules {
 		if !privilegeArgumentsUsable(s.config.Collector.Tetragon.Args) {
 			return errors.New("privilege observation cannot use source-side event filters")
@@ -142,10 +166,8 @@ func (s *Service) refreshPolicyExpiry(now time.Time) {
 	if state == nil || state.policy == nil || now.Before(state.policy.ExpiresAt) {
 		return
 	}
-	if state.policy.Response.Mode != "observe" || state.policy.Response.Action != "none" {
-		policy := *state.policy
-		policy.Response.Mode, policy.Response.Action = "observe", "none"
-		s.detectionState.Store(&detectionState{engine: state.engine, enabled: state.enabled, policy: &policy, policySHA256: state.policySHA256})
+	if !state.expired {
+		s.detectionState.Store(state.withExpiredResponse())
 	}
 	runtime.mu.Lock()
 	runtime.status.Policy.Result = "stale"

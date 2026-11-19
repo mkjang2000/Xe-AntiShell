@@ -12,7 +12,7 @@
 - Main Entry Points: `cmd/sentineld`, `cmd/sentinel`, `cmd/sentinel-web`, `cmd/sentinel-updater`
 - Developer Tool Entry: `cmd/xeas-release` (publisher signing tool, excluded from RPM payload)
 - Central Project: https://github.com/mkjang2000/Xe-AntiShell-Central
-- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol v0.4.0`
+- Shared Module: `github.com/mkjang2000/Xe-AntiShell/protocol`
 - Build Command: `make build`, `make static`, or `make rpm`
 - Run Command: `build/sentineld --config configs/sentineld.yaml`
 - Test Command: `make verify` (source, shell/UI, vet, race tests, static build)
@@ -35,6 +35,7 @@ Xe-AntiShell/
 │   │   ├── event_normalization.go # Queue-boundary privacy, exact-proof validation and event limits
 │   │   ├── operation_events.go    # Typed operation validation and lifecycle-safe context observation
 │   │   ├── rules.go               # Effective detector policy and selected-source sensor evidence
+│   │   ├── application_policies.go # Select the signed detector and response for a verified system service
 │   │   ├── rule_comparison.go     # Offline comparison of two configurations on the same JSONL sample
 │   │   ├── processing.go          # Durable event pipeline and persistence/response failure separation
 │   │   ├── capacity.go            # Local capacity readings and heartbeat delivery metrics
@@ -75,7 +76,7 @@ Xe-AntiShell/
 │   ├── privileges/                # Strict Tetragon args and root-owned fixed monitor-policy controller
 │   │   ├── policy_list.go         # Canonical empty upstream list and duplicate-key-safe decoding
 │   │   └── credential-policy.yaml # Compiled commit_creds old/new/TID/start/TGID/return sensor
-│   ├── procfs/                    # Minimal live process/cgroup snapshot
+│   ├── procfs/                    # Minimal live process/cgroup snapshot and system-service identity
 │   ├── releasepublish/            # Explicit publisher commands, private-key file safety and manifest handling
 │   ├── response/                  # Explicit opt-in pidfd post-exec SIGTERM actuator
 │   ├── storage/                   # Serialized SQLite persistence and embedded migrations

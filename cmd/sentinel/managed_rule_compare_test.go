@@ -65,3 +65,30 @@ func TestManagedImpactBindsFileBytesAndExactPolicies(t *testing.T) {
 		t.Fatal("incomplete catalog")
 	}
 }
+
+func TestManagedImpactRejectsOfflineApplicationAttribution(t *testing.T) {
+	now := time.Now().UTC()
+	p := managed.DefaultPolicy("agent-a", "enrollment-a", 1, now)
+	q := p
+	q.Revision++
+	q.Applications = []managed.ApplicationPolicy{{
+		Service: "nginx.service", PolicyID: "web-observe", PolicyVersion: 1,
+		Detection: managed.DetectionPolicy{Enabled: true, WebServices: []string{"nginx.service"}, Shells: []string{"sh"}},
+		Response:  p.Response,
+	}}
+	for _, pair := range [][2]managed.Policy{{p, q}, {q, p}} {
+		body, err := json.Marshal(managed.PolicyImpactInput{TrialID: "trial-app", EvaluatedAt: now, Current: pair[0], Candidate: pair[1]})
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(t.TempDir(), "input.json")
+		if err = os.WriteFile(path, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+		var out, stderr bytes.Buffer
+		err = run([]string{"rules", "compare", "--managed-input", path, "--host-config", "unused.yaml", "--events", "unused.jsonl"}, &out, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "offline comparison cannot verify application service membership") || out.Len() != 0 {
+			t.Fatalf("expected offline comparison to reject application policy: %v", err)
+		}
+	}
+}

@@ -37,10 +37,11 @@ func (s *Service) observeTetragonAncestors(ctx context.Context, event *model.Eve
 }
 
 func (s *Service) retainTetragonEvent(event model.Event) bool {
-	return s.retainTetragonEventWithDetector(event, s.detectionState.Load().engine)
+	state := s.detectionState.Load()
+	return s.retainTetragonEventWithDetector(event, state.engine, s.applicationForEvent(context.Background(), event, state) != nil)
 }
 
-func (s *Service) retainTetragonEventWithDetector(event model.Event, detector *detection.Engine) bool {
+func (s *Service) retainTetragonEventWithDetector(event model.Event, detector *detection.Engine, applicationMatched bool) bool {
 	if detector.IsPrivilegeCandidate(event) {
 		return true
 	}
@@ -48,6 +49,9 @@ func (s *Service) retainTetragonEventWithDetector(event model.Event, detector *d
 		return false
 	}
 	if isOperationEvent(event.Type) {
+		if applicationMatched {
+			return true
+		}
 		_, matched := detector.MatchWebOrigin(event, s.lineage)
 		return matched
 	}
@@ -65,7 +69,7 @@ func (s *Service) retainTetragonEventWithDetector(event model.Event, detector *d
 			return false
 		}
 	}
-	if policy.OnlyDetectionOrigins {
+	if policy.OnlyDetectionOrigins && !applicationMatched {
 		_, matched := detector.MatchWebOrigin(event, s.lineage)
 		return matched
 	}
