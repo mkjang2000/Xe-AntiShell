@@ -37,6 +37,7 @@ Xe-AntiShell/
 │   │   ├── rules.go               # Effective detector policy and selected-source sensor evidence
 │   │   ├── application_policies.go # Select the signed detector and response for a verified system service
 │   │   ├── service_inventory.go  # Cache and report bounded TCP listeners independently of detection
+│   │   ├── agent_configuration*.go # Apply signed operating settings and report effective sources
 │   │   ├── rule_comparison.go     # Offline comparison of two configurations on the same JSONL sample
 │   │   ├── processing.go          # Durable event pipeline and persistence/response failure separation
 │   │   ├── capacity.go            # Local capacity readings and heartbeat delivery metrics
@@ -45,7 +46,8 @@ Xe-AntiShell/
 │   │   ├── retention.go           # Deferred and paced database maintenance
 │   │   ├── privilege.go           # Opt-in engine capability, paired receipt epoch and fixed-policy worker
 │   │   ├── managed_worker.go      # Bounded acknowledged delivery bursts and independent control workers
-│   │   └── managed_update.go      # Separate update inventory/polling/report worker
+│   │   ├── managed_update.go      # Separate update inventory/polling/report worker
+│   │   └── managed_remote_removal.go # Verify enrolled Central requests and removal approval/audit
 │   ├── buildinfo/                 # Injected running RPM epoch/version/release/architecture
 │   ├── capability/                # Host/kernel feature discovery
 │   ├── collector/                 # Tetragon, audit, and replay adapters
@@ -71,6 +73,7 @@ Xe-AntiShell/
 │   ├── hostmetrics/               # Bounded procfs/sysfs resource and counter-delta sampler
 │   ├── lineage/                   # Bounded process ancestry and source-context tracking
 │   ├── localapi/                  # HTTP/JSON API and client over Unix socket
+│   │   └── panel_access.go       # Read the daemon's applied local panel access decision
 │   ├── model/                     # Shared core aliases plus agent-only history/UI models
 │   ├── integrity/                 # Bounded SHA-256 checks of packaged files and approved site YAML
 │   ├── managedclient/             # Pinned-CA HTTPS, mTLS and safe transport diagnostics
@@ -90,7 +93,7 @@ Xe-AntiShell/
 │   │   ├── compact_observations.go # Minimal event projection and source-evidence digest
 │   │   ├── observation_samples.go # Bounded file/TCP review using the immutable event service
 │   │   └── process_context.go     # Durable operation context merge preserving process lifecycle
-│   ├── updates/                   # Publisher/deployment trust, private jobs, RPM apply and collection recheck
+│   ├── updates/                   # Publisher/deployment trust, private jobs, RPM update and removal workers
 │   └── webpanel/                  # Authentication, monitoring APIs and embedded UI
 │       ├── password_policy.go     # New-password composition; legacy verification stays independent
 │       └── assets/                # Shared Korean labels, operator overview, feature states, history/resources/themes
@@ -106,7 +109,7 @@ Xe-AntiShell/
 │   ├── install_wizard_test.py     # Isolated PTY interaction/privacy checks
 │   ├── audit/                     # Opt-in audit plugin and exec-rule templates
 │   ├── rpm/                       # RPM package skeleton
-│   ├── systemd/                   # Agent/web and separately dispatched updater units
+│   ├── systemd/                   # Agent/web plus independent update and removal units
 │   └── tetragon/                  # Reviewed overrides plus pinned artifact/config/runtime/rollback helpers
 │       ├── observations.py        # Separate explicit --apply entry for monitor-only observation policies
 │       └── observation_*.py       # Fixed scope, real probes, ownership and transactional rollback
@@ -118,6 +121,7 @@ Xe-AntiShell/
 │   │   ├── rule_controls.go       # Shared built-in IDs, per-service modes and validation
 │   │   ├── service_observations.go # Shared scope validation and signed policy replacement semantics
 │   │   ├── updates.go             # Independent signed plan/install lease and separate inventory/report API contracts
+│   │   ├── remote_removal.go      # Separately signed RPM decommission orders, claims and outcome reports
 │   │   ├── policy_impact.go       # Scoped offline detector comparison inputs and aggregate output
 │   │   ├── releases.go            # Independently signed release manifest and built-in public publisher anchors
 │   │   └── testdata/              # Pre-extraction signed-policy/removal compatibility fixtures
@@ -150,6 +154,8 @@ Xe-AntiShell/
 │   ├── mit-publication.md          # MIT, bundled notices and initial public push scope
 │   ├── central-management.md      # Central integration and installer boundaries
 │   ├── managed-agent-updates.md   # Enrollment-bound RPM update staging, apply, identity and recovery
+│   ├── managed-agent-remote-removal.md # Host opt-in, admin request, RPM audit and result
+│   ├── central-site-rbac-and-removal.md # Site scope, role grants and batch removal
 │   ├── agent-hot-path-optimization.md # Constrained-VPS CPU/GC/JSON optimization and correctness gates
 │   ├── privilege-detection.md     # Global root and same-hook credential detection/control contract
 │   ├── sqlite-startup-stability.md # Serialized SQLite, safe retry, recovery and staggered startup

@@ -64,7 +64,7 @@ build_source_paths() (
     LICENSE THIRD_PARTY_NOTICES.md protocol/go.mod protocol/LICENSE
     configs/sentineld.yaml packaging/rpm/xe-antishell.spec
     packaging/systemd/sentineld.service packaging/systemd/sentinel-web.service
-    packaging/systemd/sentinel-updater.service
+    packaging/systemd/sentinel-updater.service packaging/systemd/sentinel-removal.service
     packaging/audit/xe-antishell.conf
     packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf
     packaging/tetragon/sentineld.conf packaging/install_test.sh

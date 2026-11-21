@@ -52,18 +52,23 @@ type ProcessSource interface {
 }
 
 type Service struct {
-	config              config.Config
-	store               *storage.Store
-	prober              CapabilityProber
-	processSource       ProcessSource
-	lineage             *lineage.Tracker
-	metrics             *hostmetrics.Sampler
-	detector            *detection.Engine
-	detectionState      atomic.Pointer[detectionState]
-	managedRuntime      *managedRuntime
-	updateManager       *updates.Manager
-	privilegeController *privileges.Controller
-	serviceInventory    atomic.Pointer[serviceInventorySnapshot]
+	config                          config.Config
+	store                           *storage.Store
+	prober                          CapabilityProber
+	processSource                   ProcessSource
+	lineage                         *lineage.Tracker
+	metrics                         *hostmetrics.Sampler
+	detector                        *detection.Engine
+	detectionState                  atomic.Pointer[detectionState]
+	managedRuntime                  *managedRuntime
+	updateManager                   *updates.Manager
+	privilegeController             *privileges.Controller
+	serviceInventory                atomic.Pointer[serviceInventorySnapshot]
+	agentConfiguration              atomic.Pointer[agentConfigurationState]
+	agentConfigurationMu            sync.Mutex
+	agentConfigurationHeartbeat     chan struct{}
+	agentConfigurationRestoreFailed atomic.Bool
+	managedResourceCache            atomic.Pointer[managedResourceSample]
 
 	eventQueue chan queuedEvent
 	// Only the queue processor updates this after the old subscription drains.
@@ -125,16 +130,17 @@ func NewWithProcessSource(cfg config.Config, store *storage.Store, prober Capabi
 		prober = defaultProber
 	}
 	service := &Service{
-		config:        cfg,
-		store:         store,
-		prober:        prober,
-		processSource: processSource,
-		lineage:       lineage.New(),
-		metrics:       hostmetrics.New("/proc", "/sys"),
-		detector:      detectorForConfig(cfg),
-		eventQueue:    make(chan queuedEvent, cfg.Limits.QueueSize),
-		shutdownDone:  make(chan struct{}),
-		processorStop: make(chan struct{}),
+		config:                      cfg,
+		store:                       store,
+		prober:                      prober,
+		processSource:               processSource,
+		lineage:                     lineage.New(),
+		metrics:                     hostmetrics.New("/proc", "/sys"),
+		detector:                    detectorForConfig(cfg),
+		eventQueue:                  make(chan queuedEvent, cfg.Limits.QueueSize),
+		agentConfigurationHeartbeat: make(chan struct{}, 1),
+		shutdownDone:                make(chan struct{}),
+		processorStop:               make(chan struct{}),
 		status: model.AgentStatus{
 			Version:   Version,
 			Mode:      model.AgentModeUnsupported,
@@ -454,6 +460,7 @@ func (s *Service) capabilityValue(name string) model.Capability {
 func (s *Service) Status(ctx context.Context) (model.AgentStatus, error) {
 	status, _ := s.runtimeSnapshot()
 	s.addServiceInventory(status.CapabilityReport, time.Now().UTC())
+	s.addAgentConfiguration(status.CapabilityReport)
 	s.addCapacity(ctx, status.CapabilityReport)
 	return status, nil
 }
@@ -461,6 +468,7 @@ func (s *Service) Status(ctx context.Context) (model.AgentStatus, error) {
 func (s *Service) Capabilities(_ context.Context) (model.CapabilityReport, error) {
 	_, report := s.runtimeSnapshot()
 	s.addServiceInventory(&report, time.Now().UTC())
+	s.addAgentConfiguration(&report)
 	return report, nil
 }
 

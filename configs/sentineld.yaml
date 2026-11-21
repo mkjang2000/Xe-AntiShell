@@ -85,3 +85,7 @@ service_observations: []
 
 response:
   allow_terminate: false
+
+# To block centrally authorized RPM removal on this host, set:
+# central:
+#   remote_removal_enabled: false

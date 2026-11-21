@@ -81,13 +81,17 @@ func (m *Manager) Apply(ctx context.Context) error {
 	if err != nil || job == nil || job.Terminal() {
 		return err
 	}
+	plan := job.Plan.Plan
+	removal, err := m.Store.readRemoval()
+	if err != nil || removal.matches(plan.AgentID, plan.EnrollmentID) && removal.reserved(m.now()) {
+		return err
+	}
 	if job.Last().State == "installing" {
 		return m.reconcile(ctx, job, m.running(ctx))
 	}
 	if job.Last().State != "ready" || job.Authorization == nil {
 		return nil
 	}
-	plan := job.Plan.Plan
 	var installed *managed.RPMPackage
 	fail := func(code string) error {
 		if !managed.ValidUpdateCode(code) || code == "" {

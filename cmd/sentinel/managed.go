@@ -105,12 +105,26 @@ func runManaged(ctx context.Context, client *localapi.Client, args []string, std
 		}
 		fmt.Fprintf(stdout, "Enrolled %s. Offline recovery code saved to %s (0600).\n", *agentID, *recoveryFile)
 		return nil
-	case "challenge", "removal-check":
+	case "challenge":
 		if err := command.Parse(args[1:]); err != nil {
 			return err
 		}
 		if command.NArg() != 0 {
 			return errors.New("unexpected management arguments")
+		}
+	case "removal-check":
+		operation := command.String("operation", "", "prepared remote removal operation ID")
+		if err := command.Parse(args[1:]); err != nil {
+			return err
+		}
+		if command.NArg() != 0 {
+			return errors.New("unexpected management arguments")
+		}
+		if command.NFlag() != 0 {
+			if *operation == "" {
+				return errors.New("removal-check --operation requires a remote removal operation ID")
+			}
+			input = map[string]string{"operation_id": *operation}
 		}
 	case "authorize-removal", "recover-removal":
 		operation := command.String("operation", "", "prepared removal operation ID")

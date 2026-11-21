@@ -27,6 +27,7 @@ for test_path in go.mod go.sum Makefile install.sh README.md Project_tree.md \
   protocol/managed/testdata/legacy-policy.json \
   configs/sentineld.yaml packaging/rpm/xe-antishell.spec \
   packaging/systemd/sentineld.service packaging/systemd/sentinel-web.service packaging/systemd/sentinel-updater.service \
+  packaging/systemd/sentinel-removal.service \
   packaging/audit/xe-antishell.conf \
   packaging/audit/90-xe-antishell.rules packaging/tetragon/monitor.conf \
   packaging/tetragon/sentineld.conf packaging/install_test.sh \
@@ -45,7 +46,7 @@ done
 # Archive the real RPM definition and units so the fixture guards the shipped
 # service configuration as well as the source allowlist.
 cp -- "$test_source_root/packaging/rpm/xe-antishell.spec" "$XEAS_BUILD_ROOT/packaging/rpm/"
-for unit in sentineld sentinel-web sentinel-updater; do
+for unit in sentineld sentinel-web sentinel-updater sentinel-removal; do
   cp -- "$test_source_root/packaging/systemd/$unit.service" "$XEAS_BUILD_ROOT/packaging/systemd/"
 done
 printf 'internal/private.go\nscripts/private_notes.py\n' > "$XEAS_BUILD_ROOT/.gitignore"
@@ -180,6 +181,13 @@ with tarfile.open(sys.argv[1], 'r:gz') as archive:
             'PrivateTmp': 'true',
             'ProtectHome': 'true',
         },
+        'sentinel-removal': {
+            'Type': 'oneshot',
+            'User': 'root',
+            'Group': 'root',
+            'ExecStart': '/usr/sbin/sentinel-updater --remote-removal',
+            'NoNewPrivileges': 'false',
+        },
         'sentineld': {'NoNewPrivileges': 'true', 'ProtectSystem': 'strict'},
         'sentinel-web': {'NoNewPrivileges': 'true', 'ProtectSystem': 'strict'},
     }
@@ -191,6 +199,9 @@ with tarfile.open(sys.argv[1], 'r:gz') as archive:
         unit.read_string(archive.extractfile(root + unit_path).read().decode())
         for key, value in expected.items():
             assert unit['Service'].get(key) == value, (name, key, unit['Service'].get(key))
+    preun = spec.split('\n%preun\n', 1)[1].split('\n%postun\n', 1)[0]
+    assert '--operation "$XEAS_REMOTE_REMOVAL_OPERATION"' in preun
+    assert 'sentinel-removal.service' not in next(line for line in preun.splitlines() if line.startswith('%systemd_preun'))
     for expected in ['packaging/install-tetragon.sh','packaging/install_tetragon_test.sh','packaging/tetragon/setup.py','packaging/tetragon/setup_config.py','packaging/tetragon/test_setup.py']:
         assert root+expected in names, expected
     for member in archive.getmembers():

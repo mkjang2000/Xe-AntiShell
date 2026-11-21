@@ -14,14 +14,23 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"xe-antishell/internal/model"
 )
 
 type Client struct {
-	http *http.Client
+	http                 *http.Client
+	panelAccessSupported atomic.Bool
 }
+
+type localAPIStatusError struct {
+	code    int
+	message string
+}
+
+func (e *localAPIStatusError) Error() string { return e.message }
 
 const (
 	auditForwardQueueSize = 256
@@ -243,9 +252,9 @@ func (c *Client) request(ctx context.Context, method, path string, body []byte, 
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(responseBody, &apiError) == nil && apiError.Error != "" {
-			return fmt.Errorf("local API: %s", apiError.Error)
+			return &localAPIStatusError{code: response.StatusCode, message: "local API: " + apiError.Error}
 		}
-		return fmt.Errorf("local API returned %s", response.Status)
+		return &localAPIStatusError{code: response.StatusCode, message: "local API returned " + response.Status}
 	}
 	if output != nil && len(responseBody) > 0 {
 		if err := json.Unmarshal(responseBody, output); err != nil {

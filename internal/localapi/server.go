@@ -53,6 +53,7 @@ func NewServer(backend Backend, defaultQuery, maxQuery, maxBodyBytes int) *Serve
 	server := &Server{backend: backend, maxQuery: maxQuery, defaultQuery: defaultQuery, maxBodyBytes: int64(maxBodyBytes)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/status", server.handleStatus)
+	mux.HandleFunc("GET /v1/panel-access", server.handlePanelAccess)
 	mux.HandleFunc("GET /v1/capabilities", server.handleCapabilities)
 	mux.HandleFunc("POST /v1/capabilities/refresh", server.handleRefreshCapabilities)
 	mux.HandleFunc("GET /v1/events", server.handleEvents)

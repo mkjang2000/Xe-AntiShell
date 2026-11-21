@@ -174,7 +174,7 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /api/summary", s.authenticatedAPI(http.HandlerFunc(s.summary)))
 	mux.Handle("GET /api/resources", s.authenticatedAPI(http.HandlerFunc(s.resources)))
 	mux.Handle("GET /", s.authenticated(http.HandlerFunc(s.dashboard)))
-	return s.securityHeaders(mux)
+	return s.securityHeaders(s.requirePanelAccess(mux))
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
@@ -215,7 +215,7 @@ func (s *Server) hasSession(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	_, err = s.credentials.VerifySession(cookie.Value, s.now())
+	_, err = s.credentials.verifyPanelSession(cookie.Value, s.now(), panelSessionGeneration(r))
 	return err == nil
 }
 
@@ -261,7 +261,7 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.limiter.Success(ip)
-	token, err := s.credentials.NewSession(s.now(), sessionLifetime)
+	token, err := s.credentials.newPanelSession(s.now(), sessionLifetime, panelSessionGeneration(r))
 	if err != nil {
 		s.logger.Error("create session", "error", err)
 		http.Error(w, "login unavailable", http.StatusInternalServerError)

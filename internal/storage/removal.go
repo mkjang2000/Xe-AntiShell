@@ -23,31 +23,37 @@ type RemovalOperation struct {
 	AuthorizedAt    *time.Time `json:"authorized_at,omitempty"`
 }
 
+var ErrRemovalDenied = errors.New("policy denies ordinary removal")
+
 func (s *Store) CreateRemoval(ctx context.Context) (RemovalOperation, error) {
-	challenge, err := managed.NewChallenge()
-	if err != nil {
-		return RemovalOperation{}, err
-	}
-	op := RemovalOperation{ID: identity.NewID("removal"), Challenge: challenge, State: "prepared", CreatedAt: time.Now().UTC()}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return op, err
+		return RemovalOperation{}, err
 	}
 	defer tx.Rollback()
 	child := &Store{db: s.db, tx: tx}
 	if _, err := child.ManagedState(ctx); err != nil {
+		return RemovalOperation{}, err
+	}
+	op, err := child.prepareRemoval(ctx, "", time.Now().UTC())
+	if err != nil {
 		return op, err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO removal_operations(operation_id,challenge,state,created_at_ns) VALUES(?,?,?,?)", op.ID, op.Challenge, op.State, op.CreatedAt.UnixNano())
+	return op, tx.Commit()
+}
+
+func (s *Store) prepareRemoval(ctx context.Context, mode string, now time.Time) (RemovalOperation, error) {
+	challenge, err := managed.NewChallenge()
 	if err != nil {
+		return RemovalOperation{}, err
+	}
+	op := RemovalOperation{ID: identity.NewID("removal"), Challenge: challenge, Mode: mode, State: "prepared", CreatedAt: now}
+	if _, err := s.executor().ExecContext(ctx, "INSERT INTO removal_operations(operation_id,challenge,mode,state,created_at_ns) VALUES(?,?,?,?,?)", op.ID, op.Challenge, op.Mode, op.State, op.CreatedAt.UnixNano()); err != nil {
 		return op, err
 	}
 	audit := auditFor("removal_requested", op.ID, "prepared")
 	raw, _ := json.Marshal(audit)
-	if err := child.enqueue(ctx, managed.RecordKindAudit, audit.ID, raw); err != nil {
-		return op, err
-	}
-	return op, tx.Commit()
+	return op, s.enqueue(ctx, managed.RecordKindAudit, audit.ID, raw)
 }
 func (s *Store) Removal(ctx context.Context, id string) (RemovalOperation, error) {
 	var op RemovalOperation
@@ -70,6 +76,10 @@ func (s *Store) Removal(ctx context.Context, id string) (RemovalOperation, error
 // AuthorizeRemoval consumes authorization and journals its delivery obligation
 // in one transaction. Repeating the same operation is safe after a lost reply.
 func (s *Store) AuthorizeRemoval(ctx context.Context, id string, signed *managed.SignedRemovalGrant, recovery string) (RemovalOperation, error) {
+	return s.authorizeRemoval(ctx, id, signed, recovery, nil)
+}
+
+func (s *Store) authorizeRemoval(ctx context.Context, id string, signed *managed.SignedRemovalGrant, recovery string, remote *managed.RemoteRemovalOrder) (RemovalOperation, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return RemovalOperation{}, err
@@ -88,6 +98,16 @@ func (s *Store) AuthorizeRemoval(ctx context.Context, id string, signed *managed
 	if now.Sub(op.CreatedAt) > managed.MaxRemovalGrantLifetime {
 		return op, errors.New("removal operation expired")
 	}
+	if remote != nil {
+		if signed == nil || signed.Grant.ID != remote.ID {
+			return op, errors.New("remote grant does not match the removal order")
+		}
+		if err := child.checkRemoteRemoval(ctx, state, op, remote.ID, now); err != nil {
+			return op, err
+		}
+	} else if op.Mode == remoteRemovalMode {
+		return op, errors.New("remote removal requires a matching central order")
+	}
 	authID, mode := "", ""
 	if signed != nil && recovery == "" {
 		key, err := managed.DecodePublicKey(state.PolicyPublicKey)
@@ -98,20 +118,12 @@ func (s *Store) AuthorizeRemoval(ctx context.Context, id string, signed *managed
 		if err != nil {
 			return op, err
 		}
-		var raw []byte
-		err = tx.QueryRowContext(ctx, "SELECT signed_json FROM managed_policy WHERE singleton=1").Scan(&raw)
-		if err == nil {
-			var policy managed.SignedPolicy
-			if json.Unmarshal(raw, &policy) != nil {
-				return op, errors.New("invalid stored policy")
-			}
-			if policy.Policy.UninstallMode == "deny" {
-				return op, errors.New("policy denies ordinary removal")
-			}
-		} else if !errors.Is(err, sql.ErrNoRows) {
+		authID, mode = grant.ID, "central"
+		if remote != nil {
+			mode = remoteRemovalMode
+		} else if err := child.ordinaryRemovalAllowed(ctx); err != nil {
 			return op, err
 		}
-		authID, mode = grant.ID, "central"
 	} else if signed == nil && recovery != "" {
 		if !managed.VerifyRecoveryCode(state.Recovery, state.AgentID, state.EnrollmentID, recovery) {
 			return op, errors.New("invalid recovery authorization")
@@ -120,7 +132,7 @@ func (s *Store) AuthorizeRemoval(ctx context.Context, id string, signed *managed
 	} else {
 		return op, errors.New("exactly one removal authorization is required")
 	}
-	if op.State == "authorized" && op.AuthorizationID == authID {
+	if op.AuthorizationID == authID && (op.State == "authorized" || remote != nil && op.State == "executing") {
 		return op, nil
 	}
 	if op.State != "prepared" {
@@ -130,6 +142,12 @@ func (s *Store) AuthorizeRemoval(ctx context.Context, id string, signed *managed
 		return op, errors.New("authorization has already been consumed")
 	}
 	audit := auditFor("removal_authorized", id, mode)
+	if remote != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE remote_removal_operations SET expires_at_ns=min(expires_at_ns,?) WHERE operation_id=?", signed.Grant.ExpiresAt.UnixNano(), id); err != nil {
+			return op, err
+		}
+		audit.Details = map[string]string{"order_id": authID}
+	}
 	raw, _ := json.Marshal(audit)
 	if err := child.enqueueRequiredAudit(ctx, audit.ID, raw); err != nil {
 		return op, err
@@ -144,6 +162,25 @@ func (s *Store) AuthorizeRemoval(ctx context.Context, id string, signed *managed
 	}
 	op.State, op.Mode, op.AuthorizationID, op.AuditSequence, op.AuthorizedAt = "authorized", mode, authID, sequence, &now
 	return op, tx.Commit()
+}
+
+func (s *Store) ordinaryRemovalAllowed(ctx context.Context) error {
+	var raw []byte
+	err := s.executor().QueryRowContext(ctx, "SELECT signed_json FROM managed_policy WHERE singleton=1").Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var policy managed.SignedPolicy
+	if json.Unmarshal(raw, &policy) != nil {
+		return errors.New("invalid stored policy")
+	}
+	if policy.Policy.UninstallMode == "deny" {
+		return ErrRemovalDenied
+	}
+	return nil
 }
 
 func (s *Store) enqueueRequiredAudit(ctx context.Context, id string, raw []byte) error {
@@ -170,7 +207,7 @@ func (s *Store) BeginRemoval(ctx context.Context) (RemovalOperation, error) {
 	defer tx.Rollback()
 	child := &Store{db: s.db, tx: tx}
 	var id string
-	err = tx.QueryRowContext(ctx, "SELECT operation_id FROM removal_operations WHERE state IN ('authorized','executing') ORDER BY authorized_at_ns DESC LIMIT 1").Scan(&id)
+	err = tx.QueryRowContext(ctx, "SELECT operation_id FROM removal_operations WHERE mode<>? AND state IN ('authorized','executing') ORDER BY authorized_at_ns DESC LIMIT 1", remoteRemovalMode).Scan(&id)
 	if err != nil {
 		return RemovalOperation{}, errors.New("a current one-use removal authorization is required")
 	}
@@ -178,7 +215,15 @@ func (s *Store) BeginRemoval(ctx context.Context) (RemovalOperation, error) {
 	if err != nil {
 		return op, err
 	}
-	if op.AuthorizedAt == nil || time.Since(*op.AuthorizedAt) > managed.MaxRemovalGrantLifetime {
+	op, err = child.startRemoval(ctx, op, time.Now().UTC())
+	if err != nil {
+		return op, err
+	}
+	return op, tx.Commit()
+}
+
+func (s *Store) startRemoval(ctx context.Context, op RemovalOperation, now time.Time) (RemovalOperation, error) {
+	if op.AuthorizedAt == nil || now.Sub(*op.AuthorizedAt) > managed.MaxRemovalGrantLifetime {
 		return op, errors.New("removal authorization expired")
 	}
 	if op.State == "executing" {
@@ -186,26 +231,29 @@ func (s *Store) BeginRemoval(ctx context.Context) (RemovalOperation, error) {
 	}
 	if op.Mode != "recovery" {
 		var ack uint64
-		if err := tx.QueryRowContext(ctx, "SELECT acknowledged FROM delivery_checkpoint WHERE singleton=1").Scan(&ack); err != nil {
+		if err := s.executor().QueryRowContext(ctx, "SELECT acknowledged FROM delivery_checkpoint WHERE singleton=1").Scan(&ack); err != nil {
 			return op, err
 		}
 		if ack < op.AuditSequence {
 			return op, errors.New("central removal audit has not been acknowledged")
 		}
 	}
-	audit := auditFor("removal_started", id, op.Mode)
+	audit := auditFor("removal_started", op.ID, op.Mode)
+	if op.Mode == remoteRemovalMode {
+		audit.Details = map[string]string{"order_id": op.AuthorizationID}
+	}
 	raw, _ := json.Marshal(audit)
-	if err := child.enqueueRequiredAudit(ctx, audit.ID, raw); err != nil {
+	if err := s.enqueueRequiredAudit(ctx, audit.ID, raw); err != nil {
 		return op, err
 	}
 	var sequence uint64
-	if err := tx.QueryRowContext(ctx, "SELECT sequence FROM delivery_outbox WHERE record_id=? AND kind=?", audit.ID, managed.RecordKindAudit).Scan(&sequence); err != nil {
+	if err := s.executor().QueryRowContext(ctx, "SELECT sequence FROM delivery_outbox WHERE record_id=? AND kind=?", audit.ID, managed.RecordKindAudit).Scan(&sequence); err != nil {
 		return op, err
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE removal_operations SET state='executing',audit_sequence=? WHERE operation_id=?", sequence, id)
+	_, err := s.executor().ExecContext(ctx, "UPDATE removal_operations SET state='executing',audit_sequence=? WHERE operation_id=?", sequence, op.ID)
 	if err != nil {
 		return op, err
 	}
 	op.State, op.AuditSequence = "executing", sequence
-	return op, tx.Commit()
+	return op, nil
 }

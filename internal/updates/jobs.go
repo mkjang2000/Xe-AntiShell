@@ -151,7 +151,11 @@ func (s *Store) save(job *Job) error {
 	if err != nil || len(data) > 256<<10 {
 		return errors.New("state_unavailable")
 	}
-	file, err := os.CreateTemp(s.Directory, ".job-")
+	return s.saveJournal("job.json", ".job-", data)
+}
+
+func (s *Store) saveJournal(name, temporaryName string, data []byte) error {
+	file, err := os.CreateTemp(s.Directory, temporaryName)
 	if err != nil {
 		return errors.New("state_unavailable")
 	}
@@ -165,7 +169,7 @@ func (s *Store) save(job *Job) error {
 	if err != nil {
 		return errors.New("state_unavailable")
 	}
-	if err := os.Rename(file.Name(), filepath.Join(s.Directory, "job.json")); err != nil {
+	if err := os.Rename(file.Name(), filepath.Join(s.Directory, name)); err != nil {
 		return errors.New("state_unavailable")
 	}
 	return s.syncDirectory()

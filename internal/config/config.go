@@ -37,7 +37,18 @@ type Config struct {
 	Detection           DetectionConfig            `json:"detection" yaml:"detection"`
 	Response            ResponseConfig             `json:"response" yaml:"response"`
 	ServiceObservations []ServiceObservationPolicy `json:"service_observations,omitempty" yaml:"service_observations,omitempty"`
+	Central             CentralConfig              `json:"central" yaml:"central"`
 	Updates             UpdatesConfig              `json:"updates" yaml:"updates"`
+	AgentConfiguration  AgentConfigurationLimits   `json:"agent_configuration" yaml:"agent_configuration"`
+}
+
+// CentralConfig contains host-owned permissions for managed operations.
+type CentralConfig struct {
+	RemoteRemovalEnabled bool `json:"remote_removal_enabled" yaml:"remote_removal_enabled"`
+}
+
+type AgentConfigurationLimits struct {
+	MaxObservationHistoryMinutes int `json:"max_observation_history_minutes" yaml:"max_observation_history_minutes"`
 }
 
 // Updates are considered only for an enrolled, packaged root systemd agent.
@@ -121,8 +132,10 @@ func Default() Config {
 		observationHistoryMinutes = 60
 	}
 	return Config{
-		Version: CurrentVersion,
-		Updates: UpdatesConfig{Enabled: true},
+		AgentConfiguration: AgentConfigurationLimits{MaxObservationHistoryMinutes: 1440},
+		Version:            CurrentVersion,
+		Central:            CentralConfig{RemoteRemovalEnabled: true},
+		Updates:            UpdatesConfig{Enabled: true},
 		Agent: AgentConfig{
 			SocketPath:   "/run/xe-antishell/sentineld.sock",
 			DatabasePath: "/var/lib/xe-antishell/sentinel.db",
@@ -200,6 +213,9 @@ func Decode(r io.Reader) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if limit := c.AgentConfiguration.MaxObservationHistoryMinutes; limit != 0 && (limit < 60 || limit > 1440) {
+		return errors.New("agent_configuration.max_observation_history_minutes must be zero or 60..1440")
+	}
 	if err := managed.ValidateServiceRuleControls(c.Detection.ServiceRuleControls); err != nil {
 		return err
 	}

@@ -67,7 +67,44 @@ func (s *Service) ManagementAction(ctx context.Context, action string, input jso
 			}
 		}
 		return op, nil
+	case "remote-removal-check":
+		if err := s.prepareRemoteRemovalExecution(ctx, input); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"allowed": true}, nil
 	case "removal-check":
+		var request struct {
+			OperationID json.RawMessage `json:"operation_id,omitempty"`
+		}
+		if len(input) != 0 && string(input) != "null" {
+			if err := managed.DecodeStrict(input, 4<<10, &request); err != nil {
+				return nil, err
+			}
+		}
+		var activeOperation string
+		if s.remoteRemovalSupported() {
+			var err error
+			activeOperation, err = s.updateManager.RemoteRemovalRPMOperation()
+			if err != nil {
+				return nil, err
+			}
+		}
+		if len(request.OperationID) != 0 {
+			var operationID string
+			if !s.remoteRemovalEnabled() || json.Unmarshal(request.OperationID, &operationID) != nil || operationID == "" {
+				return nil, errors.New("remote removal is not enabled or the operation ID is missing")
+			}
+			if operationID != activeOperation {
+				return nil, errors.New("remote removal does not match the active package transaction")
+			}
+			if err := s.store.CheckRemoteRemoval(ctx, operationID); err != nil {
+				return nil, err
+			}
+			return map[string]bool{"allowed": true}, nil
+		}
+		if activeOperation != "" {
+			return nil, errors.New("the active package transaction requires its remote removal operation ID")
+		}
 		if _, err := s.store.ManagedState(ctx); errors.Is(err, storage.ErrNotFound) {
 			return map[string]bool{"allowed": true}, nil
 		} else if err != nil {

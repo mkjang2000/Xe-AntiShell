@@ -1,6 +1,6 @@
 Name:           xe-antishell
 Version:        0.1.0
-Release:        38%{?dist}
+Release:        39%{?dist}
 Summary:        Standalone Linux host security monitoring agent
 License:        MIT AND Apache-2.0 AND BSD-3-Clause AND BSD-2-Clause AND BSD-1-Clause AND SunPro
 URL:            https://github.com/mkjang2000/Xe-AntiShell
@@ -31,6 +31,7 @@ install -D -m 0640 configs/sentineld.yaml %{buildroot}%{_sysconfdir}/xe-antishel
 install -D -m 0644 packaging/systemd/sentineld.service %{buildroot}%{_unitdir}/sentineld.service
 install -D -m 0644 packaging/systemd/sentinel-web.service %{buildroot}%{_unitdir}/sentinel-web.service
 install -D -m 0644 packaging/systemd/sentinel-updater.service %{buildroot}%{_unitdir}/sentinel-updater.service
+install -D -m 0644 packaging/systemd/sentinel-removal.service %{buildroot}%{_unitdir}/sentinel-removal.service
 install -D -m 0644 packaging/audit/xe-antishell.conf %{buildroot}%{_datadir}/xe-antishell/audit/xe-antishell.conf
 install -D -m 0644 packaging/audit/90-xe-antishell.rules %{buildroot}%{_datadir}/xe-antishell/audit/90-xe-antishell.rules
 install -d -m 0750 %{buildroot}%{_localstatedir}/lib/xe-antishell
@@ -50,6 +51,7 @@ install -d -m 0750 %{buildroot}%{_localstatedir}/lib/xe-antishell
 %{_unitdir}/sentineld.service
 %{_unitdir}/sentinel-web.service
 %{_unitdir}/sentinel-updater.service
+%{_unitdir}/sentinel-removal.service
 %dir %{_localstatedir}/lib/xe-antishell
 
 %pre
@@ -62,8 +64,13 @@ getent passwd xe-antishell-web >/dev/null || useradd -r -g xe-antishell -d / -s 
 %preun
 if [ "$1" -eq 0 ]; then
     # A managed removal must journal authorization before services stop.
-    /usr/bin/sentinel managed removal-check >/dev/null || exit 1
+    if [ -n "${XEAS_REMOTE_REMOVAL_OPERATION:-}" ]; then
+        /usr/bin/sentinel managed removal-check --operation "$XEAS_REMOTE_REMOVAL_OPERATION" >/dev/null || exit 1
+    else
+        /usr/bin/sentinel managed removal-check >/dev/null || exit 1
+    fi
 fi
+# The independent sentinel-removal worker reports the verified RPM outcome.
 %systemd_preun sentineld.service sentinel-web.service sentinel-updater.service
 
 %postun
@@ -71,6 +78,10 @@ fi
 %systemd_postun_with_restart sentinel-web.service
 
 %changelog
+* Sun Nov 22 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-39
+- Apply signed operating settings and report effective local values
+- Verify current Central authorization immediately before managed RPM removal
+
 * Thu Nov 19 2026 mkjang2000 and Xe-AntiShell contributors - 0.1.0-38
 - Discover TCP listeners and verified systemd service membership
 - Report a bounded inventory locally and in the existing managed heartbeat

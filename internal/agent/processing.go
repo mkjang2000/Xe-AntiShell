@@ -131,7 +131,7 @@ func (s *Service) processCapturedObservation(ctx context.Context, event *model.E
 
 	findings := s.evaluateObservation(*event, detection, app, evaluationTime)
 	// Evidence, derived findings, and managed delivery are one durable unit.
-	inserted, err := s.store.PersistObservationWithHistory(ctx, *event, findings, s.config.Limits.ObservationHistoryMinutes > 0)
+	inserted, err := s.store.PersistObservationWithHistory(ctx, *event, findings, s.observationHistoryMinutes() > 0)
 	if err != nil {
 		return &eventProcessingError{operation: "event_store", cause: err}
 	}

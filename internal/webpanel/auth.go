@@ -185,6 +185,10 @@ type sessionPayload struct {
 }
 
 func (c Credentials) NewSession(now time.Time, lifetime time.Duration) (string, error) {
+	return c.newPanelSession(now, lifetime, "")
+}
+
+func (c Credentials) newPanelSession(now time.Time, lifetime time.Duration, generation string) (string, error) {
 	if lifetime <= 0 || lifetime > 24*time.Hour {
 		return "", errors.New("invalid session lifetime")
 	}
@@ -198,11 +202,15 @@ func (c Credentials) NewSession(now time.Time, lifetime time.Duration) (string, 
 		return "", err
 	}
 	payloadPart := base64.RawURLEncoding.EncodeToString(encoded)
-	signature := c.sign(payloadPart)
+	signature := c.sign(payloadPart, generation)
 	return payloadPart + "." + base64.RawURLEncoding.EncodeToString(signature), nil
 }
 
 func (c Credentials) VerifySession(token string, now time.Time) (string, error) {
+	return c.verifyPanelSession(token, now, "")
+}
+
+func (c Credentials) verifyPanelSession(token string, now time.Time, generation string) (string, error) {
 	if len(token) > 2048 {
 		return "", ErrInvalidSession
 	}
@@ -211,7 +219,7 @@ func (c Credentials) VerifySession(token string, now time.Time) (string, error) 
 		return "", ErrInvalidSession
 	}
 	provided, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil || base64.RawURLEncoding.EncodeToString(provided) != parts[1] || !hmac.Equal(provided, c.sign(parts[0])) {
+	if err != nil || base64.RawURLEncoding.EncodeToString(provided) != parts[1] || !hmac.Equal(provided, c.sign(parts[0], generation)) {
 		return "", ErrInvalidSession
 	}
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
@@ -225,9 +233,14 @@ func (c Credentials) VerifySession(token string, now time.Time) (string, error) 
 	return payload.Username, nil
 }
 
-func (c Credentials) sign(payload string) []byte {
+func (c Credentials) sign(payload, generation string) []byte {
 	key, _ := base64.RawURLEncoding.DecodeString(c.SessionKey)
 	mac := hmac.New(sha256.New, key)
+	if generation != "" {
+		_, _ = mac.Write([]byte("xeas-local-panel-access\x00"))
+		_, _ = mac.Write([]byte(generation))
+		_, _ = mac.Write([]byte{0})
+	}
 	_, _ = mac.Write([]byte(payload))
 	return mac.Sum(nil)
 }

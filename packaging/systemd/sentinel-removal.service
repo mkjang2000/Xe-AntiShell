@@ -1,0 +1,18 @@
+[Unit]
+Description=Xe-AntiShell authorized agent removal
+After=local-fs.target
+ConditionPathExists=/var/lib/xe-antishell/updates/removal.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/sbin/sentinel-updater --remote-removal
+UMask=0077
+# The signed package job retains RPM's normal SELinux scriptlet transition.
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=true
+TimeoutStartSec=420s
+TimeoutStopSec=20s
+KillMode=control-group

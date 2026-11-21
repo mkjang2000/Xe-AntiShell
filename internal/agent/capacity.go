@@ -60,7 +60,7 @@ func (s *Service) addCapacity(ctx context.Context, report *model.CapabilityRepor
 	now := time.Now().UTC()
 	depth := len(s.eventQueue)
 	observeMax(&s.capacity.highWater, uint64(depth))
-	historyMinutes := s.config.Limits.ObservationHistoryMinutes
+	historyMinutes := s.observationHistoryMinutes()
 	d := map[string]string{
 		"queue_depth":                 strconv.Itoa(depth),
 		"queue_capacity":              strconv.Itoa(cap(s.eventQueue)),

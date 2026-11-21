@@ -16,7 +16,7 @@ const processSweepPageSize = 250
 const retentionBatchDeadline = 400 * time.Millisecond
 
 func (s *Service) observationCutoff(now time.Time) time.Time {
-	if minutes := s.config.Limits.ObservationHistoryMinutes; minutes > 0 {
+	if minutes := s.observationHistoryMinutes(); minutes > 0 {
 		return now.Add(-time.Duration(minutes) * time.Minute)
 	}
 	return now.AddDate(0, 0, -s.config.Limits.RetentionDays)
@@ -25,7 +25,6 @@ func (s *Service) observationCutoff(now time.Time) time.Time {
 func (s *Service) retentionLoop(ctx context.Context) {
 	defer s.producerWG.Done()
 	run := func() {
-		cutoff := s.observationCutoff(time.Now().UTC())
 		sweeps := []struct {
 			name     string
 			pageSize int
@@ -37,10 +36,12 @@ func (s *Service) retentionLoop(ctx context.Context) {
 		for _, sweep := range sweeps {
 			pageSize := sweep.pageSize
 			for pages := 0; pages < maxRetentionBatchesPerRun*retentionBatchSize/sweep.pageSize; pages++ {
+				s.agentConfigurationMu.Lock()
 				pageCtx, cancel := context.WithTimeout(ctx, retentionBatchDeadline)
-				more, err := sweep.page(pageCtx, cutoff, pageSize)
+				more, err := sweep.page(pageCtx, s.observationCutoff(time.Now().UTC()), pageSize)
 				timedOut := errors.Is(pageCtx.Err(), context.DeadlineExceeded)
 				cancel()
+				s.agentConfigurationMu.Unlock()
 				if err != nil {
 					if ctx.Err() != nil {
 						return
@@ -65,18 +66,18 @@ func (s *Service) retentionLoop(ctx context.Context) {
 		return
 	}
 	run()
-	interval := retentionInterval
-	if s.config.Limits.ObservationHistoryMinutes > 0 {
-		interval = time.Minute
-	}
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
+	last := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			run()
+			if s.observationHistoryMinutes() > 0 || time.Since(last) >= retentionInterval {
+				run()
+				last = time.Now()
+			}
 		}
 	}
 }

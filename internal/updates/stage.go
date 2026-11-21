@@ -123,6 +123,22 @@ func (m *Manager) Once(ctx context.Context, client Client, identity Identity, in
 		return err
 	}
 	defer unlock(lock)
+	removal, err := m.Store.readRemoval()
+	if err != nil {
+		return err
+	}
+	if removal.reserved(m.now()) {
+		if removal.matches(identity.AgentID, identity.EnrollmentID) {
+			return nil
+		}
+		// A previous enrollment's journal cannot reserve a new generation,
+		// but a worker still holding the package lock must finish first.
+		apply, err := m.Store.lock(".apply.lock")
+		if err != nil {
+			return err
+		}
+		unlock(apply)
+	}
 	if err := m.Store.cleanTemporaryFiles(); err != nil {
 		return err
 	}

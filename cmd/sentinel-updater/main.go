@@ -12,7 +12,8 @@ import (
 )
 
 func main() {
-	if os.Geteuid() != 0 || len(os.Args) != 1 {
+	removal := len(os.Args) == 2 && os.Args[1] == "--remote-removal"
+	if os.Geteuid() != 0 || len(os.Args) != 1 && !removal {
 		fmt.Fprintln(os.Stderr, "sentinel-updater: fixed root service invocation required")
 		os.Exit(1)
 	}
@@ -20,7 +21,15 @@ func main() {
 	defer cancel()
 	bounded, stop := context.WithTimeout(ctx, 6*time.Minute)
 	defer stop()
-	if err := updates.NewManager().Apply(bounded); err != nil {
+	manager := updates.NewManager()
+	if removal {
+		if err := manager.ApplyRemoteRemoval(bounded); err != nil {
+			fmt.Fprintln(os.Stderr, "sentinel-updater: remote removal work remains in the local journal")
+			os.Exit(1)
+		}
+		return
+	}
+	if err := manager.Apply(bounded); err != nil {
 		fmt.Fprintln(os.Stderr, "sentinel-updater: local update journal unavailable")
 		os.Exit(1)
 	}

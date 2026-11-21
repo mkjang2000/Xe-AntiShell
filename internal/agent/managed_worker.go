@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mkjang2000/Xe-AntiShell/protocol/managed"
+	"xe-antishell/internal/hostmetrics"
 	"xe-antishell/internal/storage"
 )
 
@@ -30,6 +31,11 @@ func (s *Service) startManagedWorkers(ctx context.Context) {
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		s.managedError("identity", "stored central identity is invalid")
 	}
+	if enrolled, err := s.store.ManagedState(ctx); err == nil {
+		s.agentConfigurationRestoreFailed.Store(s.restoreAgentConfiguration(ctx, enrolled) != nil)
+	} else if !errors.Is(err, storage.ErrNotFound) {
+		s.agentConfigurationRestoreFailed.Store(true)
+	}
 	// Keep durable policy restoration above synchronous. Spread optional work
 	// across startup; collector acceptance and the local API remain immediate.
 	for _, worker := range []struct {
@@ -41,6 +47,9 @@ func (s *Service) startManagedWorkers(ctx context.Context) {
 		{5 * time.Second, s.managedPolicyLoop},
 		{7 * time.Second, s.managedUpdateLoop},
 		{11 * time.Second, s.managedFileIntegrityLoop},
+		{13 * time.Second, s.pollAgentConfiguration},
+		{17 * time.Second, s.managedRemoteRemovalLoop},
+		{4 * time.Second, s.managedResourceSamplerLoop},
 	} {
 		s.producerWG.Add(1)
 		go func(delay time.Duration, run func(context.Context)) {
@@ -115,7 +124,9 @@ func runManagedDelivery(ctx context.Context, deliver func(context.Context) (bool
 
 func (s *Service) managedHeartbeatLoop(ctx context.Context) {
 	for {
-		interval := time.Second * time.Duration(s.currentMonitoring().SampleIntervalSeconds)
+		monitoring := s.currentMonitoring()
+		settings := s.approvedAgentConfiguration()
+		interval := time.Second * time.Duration(s.heartbeatInterval(monitoring, settings))
 		client, state, err := s.managedConnection(ctx)
 		if err == nil {
 			status, _ := s.Status(ctx)
@@ -123,8 +134,14 @@ func (s *Service) managedHeartbeatLoop(ctx context.Context) {
 			policy := s.managedRuntime.status.Policy
 			s.managedRuntime.mu.RUnlock()
 			var resources json.RawMessage
-			if s.currentMonitoring().Enabled {
-				resources = s.managedResources(ctx)
+			if monitoring.Enabled {
+				if samplingManaged(settings) {
+					if sample := s.managedResourceCache.Load(); sample != nil {
+						resources = sample.data
+					}
+				} else {
+					resources = s.managedResources(ctx)
+				}
 			}
 			heartbeat := managed.Heartbeat{AgentID: state.AgentID, EnrollmentID: state.EnrollmentID, Status: status, Resources: resources, PolicyStatus: policy, SentAt: time.Now().UTC()}
 			if status.CapabilityReport != nil {
@@ -139,10 +156,22 @@ func (s *Service) managedHeartbeatLoop(ctx context.Context) {
 		} else if !errors.Is(err, storage.ErrNotFound) {
 			s.managedError("heartbeat", "stored central identity is invalid")
 		}
-		if !managedWait(ctx, interval) {
+		if !s.waitManagedHeartbeat(ctx, interval) {
 			return
 		}
 	}
+}
+
+func (s *Service) waitManagedHeartbeat(ctx context.Context, interval time.Duration) bool {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+	case <-s.agentConfigurationHeartbeat:
+	}
+	return true
 }
 
 func (s *Service) managedResources(ctx context.Context) json.RawMessage {
@@ -150,6 +179,10 @@ func (s *Service) managedResources(ctx context.Context) json.RawMessage {
 	if err != nil {
 		return json.RawMessage(`{"errors":["resource sampling failed"]}`)
 	}
+	return encodeManagedResources(snapshot)
+}
+
+func encodeManagedResources(snapshot hostmetrics.Snapshot) json.RawMessage {
 	snapshot.Errors = append([]string(nil), snapshot.Errors...)
 	// Reserve room for agent/capability status inside the central 512 KiB
 	// heartbeat limit. ProcessCount still reports the full observed population.

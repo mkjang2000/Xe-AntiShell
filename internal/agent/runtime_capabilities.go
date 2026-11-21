@@ -108,6 +108,7 @@ func (s *Service) runtimeSnapshotFor(policy *detectionState) (model.AgentStatus,
 		report.Capabilities = make(map[string]model.Capability)
 	}
 	addFileIntegrityCapability(&report)
+	s.addRemoteRemovalCapability(&report)
 	report.Capabilities[response.CapabilityName] = response.Capability(s.config.Response.AllowTerminate)
 	report.Capabilities[serviceObservationCapability] = model.Capability{
 		Name: serviceObservationCapability, Provider: "local-detector", State: model.CapabilitySupported,
