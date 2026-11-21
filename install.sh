@@ -173,19 +173,19 @@ prepare_wizard_release() {
   read_install_os
   major=${os_version%%.*}
   case "$os_id:$major:$architecture" in
-    rocky:9:x86_64) digest=4cb5ea351a1182dcf0e6ebc7a81d2f9c1db45e1b9d8590b281524d144d652d25 ;;
-    rocky:10:x86_64) digest=a9daac6b62a6ed1b912346c3b388a48d2a446719bff8cd28bca25b9144ab71b3 ;;
+    rocky:9:x86_64) digest=ecefeafa16e5dad82462f27f2f086116015c8d29e0216bebfb2b82c3e9f0fd99 ;;
+    rocky:10:x86_64) digest=6ba2d5f03440ee536bea72726408f416eedbcd1ccfa0e3d98d1602178d6344d1 ;;
     *)
       warn 'Automatic RPM download supports Rocky Linux 9/10 x86_64. Select a local RPM.'
       return 0 ;;
   esac
   prepare_download_directory || return 1
-  name=xe-antishell-0.1.0-38.el$major.x86_64.rpm
+  name=xe-antishell-0.1.0-39.el$major.x86_64.rpm
   printf 'Rocky Linux %s용 GitHub 릴리즈를 확인합니다. (%s)\n' "$major" "$name" >&2
-  fetch_install_file "https://github.com/mkjang2000/Xe-AntiShell/releases/download/v0.1.0-r38/$name" \
+  fetch_install_file "https://github.com/mkjang2000/Xe-AntiShell/releases/download/v0.1.0-r39/$name" \
     "$download_directory/$name" "$digest" 67108864 || return 1
   metadata=$(rpm -qp --queryformat '%{NAME}|%{EPOCHNUM}|%{VERSION}|%{RELEASE}|%{ARCH}' -- "$download_directory/$name") || return 1
-  [[ "$metadata" == "xe-antishell|0|0.1.0|38.el$major|x86_64" ]] || {
+  [[ "$metadata" == "xe-antishell|0|0.1.0|39.el$major|x86_64" ]] || {
     fail 'Downloaded RPM metadata does not match the selected release.'; return 1
   }
   # The existing wizard lists RPMs adjacent to the installer root.
